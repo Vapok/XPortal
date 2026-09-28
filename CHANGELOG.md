@@ -1,10 +1,13 @@
-# 2.0.10 - Portal Connection Fix
-> **Author's Note:** Apologies for the update earlier which messed up portals connections. This has been fixed.
-
-* Fixed portal destinations reconnecting to incorrect portals on world reload or server restart.
+# 2.0.11 - Dependency Updates & Stability
+* Updated internal dependencies for stability.
 
 <details>
 <summary><b>2.0 Changelog History (Valheim Release)</b> (<i>click to expand</i>)</summary>
+
+### 2.0.10 - Portal Connection Fix
+> **Author's Note:** Apologies for the update earlier which messed up portals connections. This has been fixed.
+
+* Fixed portal destinations reconnecting to incorrect portals on world reload or server restart.
 
 ### 2.0.9 - Dedicated Server UI Patch Hardening & Dependency Updates
 * **Dedicated Server Safety**: Ensured UI hooks and hover text patches are bypassed on headless dedicated servers.

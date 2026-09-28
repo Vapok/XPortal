@@ -1,3 +1,8 @@
+# 2.0.11 - Dependency Updates & Stability
+* **Library Updates**:
+  * Internalized `Vapok.Valheim.Common` 3.22.1016.
+  * Updated game assembly references to 1.0.16.
+
 # 2.0.10 - Portal Connection Fix
 * **Portal Reconnection & Target Resolution (`Patches/ZDOMan.cs`)**:
   * Resolved cross-session portal scrambling in `ZDOMan_ConnectPortals` by eliminating premature current-session ID collision check (`GetZDO(targetId)`).
