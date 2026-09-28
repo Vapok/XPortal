@@ -15,6 +15,7 @@
   "hud_xportal_no_destinations": "Нет других порталов",
   "piece_portal_private": "Частный портал",
   "hud_xportal_network_my_private": "Мои частные порталы",
+  "hud_xportal_network_restricted": "Этот портал принадлежит сети, к которой у вас нет доступа.",
   "settings_dropdown_scrollup": "Прокрутка выпадающего списка вверх",
   "settings_dropdown_scrolldown": "Прокрутка выпадающего списка вниз"
 }

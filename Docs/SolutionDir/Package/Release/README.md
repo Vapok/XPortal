@@ -78,7 +78,7 @@ XPortal's config file, which can be found at `Valheim\BepInEx\config\yay.spikehi
 
 `PingMapDisabled`
 
-Disable the Ping Map button completely. For players who wish to play without a map. This setting is enforced (but not overwritten) by the server.
+Disable the Ping Map button completely. For players who wish to play without a map. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
 `DisplayPortalColour`
 
@@ -86,11 +86,11 @@ Show a coloured ">>" tag in the list of portals to indicate the portal type (int
 
 `DoublePortalCosts`
 
-Since XPortal is essentially a cheat, in that you only need half the amount of portals now, this setting allows you to compensate for that by doubling portal costs. This setting is enforced (but not overwritten) by the server.
+Since XPortal is essentially a cheat, in that you only need half the amount of portals now, this setting allows you to compensate for that by doubling portal costs. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
 `HidePortalDistance`
 
-If you don't want to see how far away the portals in the list are, you can use this option to remove that. This setting is enforced (but not overwritten) by the server.
+If you don't want to see how far away the portals in the list are, you can use this option to remove that. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
 `DefaultPortal`
 

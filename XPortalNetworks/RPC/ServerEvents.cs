@@ -43,6 +43,17 @@ namespace XPortalNetworks.RPC.Server
             var requesterMayChangeNetwork = requesterIsCreator || requesterIsNetworkOwner || requesterIsPrivileged;
             var requesterMayEditPrivatePortal = requesterIsCreator || requesterIsNetworkOwner || requesterIsPrivileged;
 
+            // Admins/host only bypass allow lists when the server config allows it (AdminsSeeAllNetworks).
+            var requesterBypassesNetworks = requesterIsPrivileged && CustomNetworks.AdminsBypassNetworks;
+
+            var requesterUserId = NetPeerUtility.GetPeerUserId(sender);
+            var requesterPlayerIdString = requesterPlayerId != 0L ? requesterPlayerId.ToString() : string.Empty;
+            var authoritativeNetworkId = existing != null
+                ? existing.NetworkOwnerPlayerId
+                : ZdoTools.GetNetworkOwnerPlayerId(portalZdo);
+            var currentNetworkRestricted = CustomNetworks.IsReservedIdRange(authoritativeNetworkId)
+                && !CustomNetworks.IsPlayerAllowed(authoritativeNetworkId, requesterUserId, requesterPlayerIdString, requesterBypassesNetworks);
+
             if (!requesterMayChangeNetwork)
             {
                 var authoritativeNetwork = existing != null
@@ -120,6 +131,27 @@ namespace XPortalNetworks.RPC.Server
                 }
             }
 
+            var requestedNetworkRestricted = CustomNetworks.IsReservedIdRange(portal.NetworkOwnerPlayerId)
+                && !CustomNetworks.IsPlayerAllowed(portal.NetworkOwnerPlayerId, requesterUserId, requesterPlayerIdString, requesterBypassesNetworks);
+
+            // Team networks ("allow_list") are server-authoritative: a player who is not on the network's
+            // allow list may not view, edit, or move portals on that network.
+            if (!requesterBypassesNetworks && existing != null && currentNetworkRestricted)
+            {
+                portal.Name = existing.Name;
+                portal.Target = existing.Target;
+                portal.IsPrivate = existing.IsPrivate;
+                portal.NetworkOwnerPlayerId = existing.NetworkOwnerPlayerId;
+                portal.NetworkOwnerDisplayName = existing.NetworkOwnerDisplayName ?? string.Empty;
+            }
+            else if (!requesterBypassesNetworks && requestedNetworkRestricted)
+            {
+                portal.NetworkOwnerPlayerId = authoritativeNetworkId;
+                portal.NetworkOwnerDisplayName = existing != null
+                    ? (existing.NetworkOwnerDisplayName ?? string.Empty)
+                    : (ZdoTools.GetNetworkOwnerDisplayName(portalZdo) ?? string.Empty);
+            }
+
             if (portal.IsPrivate)
             {
                 if (portal.NetworkOwnerPlayerId == 0L)
@@ -144,6 +176,16 @@ namespace XPortalNetworks.RPC.Server
                 {
                     portal.Target = existing != null ? existing.Target : ZDOID.None;
                 }
+            }
+
+            // Do not allow linking to a portal that sits on a team network the requester cannot access.
+            if (portal.HasTarget()
+                && !requesterBypassesNetworks
+                && KnownPortalsManager.Instance.TryGetValue(portal.Target, out var destNetworkValidation)
+                && CustomNetworks.IsReservedIdRange(destNetworkValidation.NetworkOwnerPlayerId)
+                && !CustomNetworks.IsPlayerAllowed(destNetworkValidation.NetworkOwnerPlayerId, requesterUserId, requesterPlayerIdString, false))
+            {
+                portal.Target = existing != null ? existing.Target : ZDOID.None;
             }
 
             var updatedPortal = KnownPortalsManager.Instance.AddOrUpdate(portal);
@@ -204,19 +246,6 @@ namespace XPortalNetworks.RPC.Server
             }
         }
 
-        internal static void RPC_ConfigRequest(long sender)
-        {
-            if (!Environment.IsServer)
-            {
-                Log.Error($"{sender} wants to receive the config, {ERR_NOTSERVER}");
-                return;
-            }
-
-            Log.Debug($"{sender} wants to receive the config");
-            ZPackage pkg = XPortalNetworksConfig.Instance.PackLocalConfig();
-            SendToClient.Config(sender, pkg);
-        }
-
         internal static void RPC_RequestCustomNetworks(long sender)
         {
             if (!Environment.IsServer)
@@ -226,7 +255,25 @@ namespace XPortalNetworks.RPC.Server
             }
 
             Log.Debug($"{sender} wants custom networks");
-            SendToClient.CustomNetworks(sender, CustomNetworks.PackForServer());
+            SendCustomNetworksTo(sender);
+
+            // The peer's platform identity may not be fully resolved this early in the join
+            // sequence; re-send shortly so allow-list-restricted networks reach the client.
+            QueuedAction.Queue(ResendCustomNetworks, delay: 60, state: sender);
+            QueuedAction.Queue(ResendCustomNetworks, delay: 300, state: sender);
+        }
+
+        private static void ResendCustomNetworks(bool delayed, object state)
+        {
+            if (state is long peerId && Environment.IsServer)
+            {
+                SendCustomNetworksTo(peerId);
+            }
+        }
+
+        private static void SendCustomNetworksTo(long peerId)
+        {
+            SendToClient.CustomNetworks(peerId, CustomNetworks.PackForClient(peerId));
         }
 
         internal static void RPC_RequestAdminSync(long sender, ZPackage _)

@@ -21,19 +21,103 @@ namespace XPortalNetworks
 
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-        private static readonly Dictionary<long, string> ActiveById = new Dictionary<long, string>();
+        /// <summary>
+        /// A configured portal network (id 1–15) together with its optional team allow list.
+        /// When <see cref="AllowList"/> is empty the network is open to everyone.
+        /// </summary>
+        internal sealed class PortalNetworkDefinition
+        {
+            internal long Id { get; }
 
-        /// <summary>Extracts <c>id</c> / <c>name</c> pairs from the JSON (keys must appear as <c>"id"</c> then <c>"name"</c> per entry).</summary>
-        private static readonly Regex NetworkEntryRegex = new Regex(
-            @"""id""\s*:\s*(\d+)\s*,\s*""name""\s*:\s*""((?:[^""\\]|\\.)*)""",
+            internal string Name { get; }
+
+            /// <summary>Player identifiers (e.g. <c>Steam_12345678901234567</c>) permitted on this network.</summary>
+            internal IReadOnlyList<string> AllowList { get; }
+
+            internal PortalNetworkDefinition(long id, string name, IReadOnlyList<string> allowList)
+            {
+                Id = id;
+                Name = name ?? string.Empty;
+                AllowList = allowList ?? Array.Empty<string>();
+            }
+
+            /// <summary>True when the network is visible/usable by everyone.</summary>
+            internal bool IsOpen => AllowList == null || AllowList.Count == 0;
+
+            /// <summary>True when any supplied player identifier matches an entry in the allow list.</summary>
+            internal bool Allows(params string[] playerIdentifiers)
+            {
+                if (IsOpen)
+                {
+                    return true;
+                }
+
+                foreach (var allowed in AllowList)
+                {
+                    if (string.IsNullOrWhiteSpace(allowed))
+                    {
+                        continue;
+                    }
+
+                    foreach (var candidate in playerIdentifiers)
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate))
+                        {
+                            continue;
+                        }
+
+                        if (string.Equals(allowed.Trim(), candidate.Trim(), StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        private static readonly Dictionary<long, PortalNetworkDefinition> ActiveById = new Dictionary<long, PortalNetworkDefinition>();
+
+        // Each network entry is a flat JSON object, e.g. { "id": 1, "name": "Bosses", "allow_list": ["Steam_..."] }.
+        // The parse below extracts the fields we care about without pulling in a full JSON dependency.
+        private static readonly Regex NetworkObjectRegex = new Regex(
+            @"\{[^{}]*\}",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex NetworkIdRegex = new Regex(
+            @"""id""\s*:\s*(\d+)",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex NetworkNameRegex = new Regex(
+            @"""name""\s*:\s*""((?:[^""\\]|\\.)*)""",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex NetworkAllowListRegex = new Regex(
+            @"""allow_list""\s*:\s*\[(.*?)\]",
+            RegexOptions.Singleline | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex JsonStringRegex = new Regex(
+            @"""((?:[^""\\]|\\.)*)""",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static FileSystemWatcher _watcher;
         private static readonly object ReloadGate = new object();
-        private static readonly object ReloadTimerLock = new object();
-        private static SynchronizationContext _mainThreadContext;
-        private static global::System.Threading.Timer _reloadCoalesceTimer;
-        private const int CoalesceDelayMs = 400;
+
+        // Hot-reload state. The FileSystemWatcher (background thread) and the poller only raise a
+        // flag; the actual reload always runs on the game's main thread via ServerTick().
+        private static volatile bool _hotReloadActive;
+        private static volatile bool _reloadPending;
+        private static volatile int _reloadDebounceFrames;
+        private static DateTime _lastWriteUtc = DateTime.MinValue;
+        private static long _lastFileSize = -1L;
+        private static int _pollCountdown;
+
+        /// <summary>Frames to wait after the last detected change before reloading (coalesces editor saves).</summary>
+        private const int ReloadDebounceFrames = 45;
+
+        /// <summary>How often (in frames) to poll the file as a fallback for missed watcher events.</summary>
+        private const int PollIntervalFrames = 30;
 
         /// <summary>Fired when the active network list changes.</summary>
         internal static event Action ListChanged;
@@ -48,7 +132,7 @@ namespace XPortalNetworks
             }
         }
 
-        internal static void ServerSetFromParsed(Dictionary<long, string> parsed)
+        internal static void ServerSetFromParsed(Dictionary<long, PortalNetworkDefinition> parsed)
         {
             lock (ActiveById)
             {
@@ -60,45 +144,88 @@ namespace XPortalNetworks
             }
         }
 
+        /// <summary>
+        /// Applies the network list the server selected for this client. The server only sends
+        /// the networks this client may use and never includes allow-list data, so a client
+        /// cannot learn about (or display) restricted networks it isn't a member of.
+        /// </summary>
         internal static void ApplyFromServer(ZPackage pkg)
         {
-            var n = pkg.ReadInt();
+            var count = pkg.ReadInt();
             lock (ActiveById)
             {
                 ActiveById.Clear();
-                for (var i = 0; i < n; i++)
+                for (var i = 0; i < count; i++)
                 {
                     var id = pkg.ReadLong();
                     var name = pkg.ReadString();
+
                     if (id < MinId || id > MaxId || string.IsNullOrEmpty(name))
                     {
                         continue;
                     }
 
-                    ActiveById[id] = name;
+                    ActiveById[id] = new PortalNetworkDefinition(id, name, Array.Empty<string>());
                 }
             }
 
             ListChanged?.Invoke();
         }
 
-        internal static ZPackage PackForServer()
+        /// <summary>
+        /// Builds the network list for a single client: only the networks that client is
+        /// permitted to use, and without any allow-list data.
+        /// </summary>
+        internal static ZPackage PackForClient(long peerId)
         {
-            List<KeyValuePair<long, string>> snapshot;
+            var privileged = NetPeerUtility.IsPeerPrivilegedForPortalNetwork(peerId) && AdminsBypassNetworks;
+            var userId = privileged ? null : NetPeerUtility.GetPeerUserId(peerId);
+            var numericId = privileged ? null : NetPeerUtility.GetPeerPlayerIdString(peerId);
+
+            List<PortalNetworkDefinition> snapshot;
             lock (ActiveById)
             {
-                snapshot = ActiveById.OrderBy(k => k.Key).ToList();
+                snapshot = ActiveById.Values.OrderBy(d => d.Id).ToList();
             }
 
+            var allowed = privileged
+                ? snapshot
+                : snapshot.Where(d => d.Allows(userId, numericId)).ToList();
+
             var pkg = new ZPackage();
-            pkg.Write(snapshot.Count);
-            foreach (var kv in snapshot)
+            pkg.Write(allowed.Count);
+            foreach (var definition in allowed)
             {
-                pkg.Write(kv.Key);
-                pkg.Write(kv.Value);
+                pkg.Write(definition.Id);
+                pkg.Write(definition.Name);
             }
 
             return pkg;
+        }
+
+        /// <summary>Pushes each connected peer its own tailored network list.</summary>
+        internal static void BroadcastToAllPeers()
+        {
+            if (ZNet.instance == null)
+            {
+                return;
+            }
+
+            var peers = ZNet.instance.GetConnectedPeers();
+            if (peers == null || peers.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var peer in peers)
+            {
+                if (peer == null || peer.m_uid == 0L || peer.m_uid == ZNet.GetUID())
+                {
+                    continue;
+                }
+
+                SendToClient.CustomNetworks(peer.m_uid, PackForClient(peer.m_uid));
+            }
         }
 
         internal static bool IsActiveId(long id)
@@ -116,9 +243,21 @@ namespace XPortalNetworks
 
         internal static bool TryGetDisplayName(long id, out string displayName)
         {
+            if (TryGetDefinition(id, out var definition))
+            {
+                displayName = definition.Name;
+                return true;
+            }
+
+            displayName = null;
+            return false;
+        }
+
+        internal static bool TryGetDefinition(long id, out PortalNetworkDefinition definition)
+        {
             lock (ActiveById)
             {
-                return ActiveById.TryGetValue(id, out displayName);
+                return ActiveById.TryGetValue(id, out definition);
             }
         }
 
@@ -129,6 +268,100 @@ namespace XPortalNetworks
                 return ActiveById.Keys.OrderBy(k => k).ToList();
             }
         }
+
+        /// <summary>Active network ids the local player is permitted to see and use.</summary>
+        internal static List<long> GetVisibleSortedActiveIds()
+        {
+            if (IsLocalPlayerNetworkPrivileged())
+            {
+                return GetSortedActiveIds();
+            }
+
+            var userId = NetPeerUtility.GetLocalUserId();
+            var numericId = NetPeerUtility.GetLocalPlayerIdString();
+
+            lock (ActiveById)
+            {
+                return ActiveById
+                    .Where(kv => kv.Value == null || kv.Value.Allows(userId, numericId))
+                    .Select(kv => kv.Key)
+                    .OrderBy(k => k)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// True when the supplied player may use the given network. Non-configured ids are always
+        /// allowed; privileged players (server admins/host) bypass allow lists. A reserved id that
+        /// is unknown to this instance is treated as not allowed - on clients the server only sends
+        /// the networks that client may use.
+        /// </summary>
+        internal static bool IsPlayerAllowed(long id, string userId, string numericPlayerId, bool privileged = false)
+        {
+            if (!IsReservedIdRange(id))
+            {
+                return true;
+            }
+
+            if (privileged)
+            {
+                return true;
+            }
+
+            PortalNetworkDefinition definition;
+            lock (ActiveById)
+            {
+                ActiveById.TryGetValue(id, out definition);
+            }
+
+            return definition != null && definition.Allows(userId, numericPlayerId);
+        }
+
+        /// <summary>
+        /// True when the local player may see/use the given network id. On clients the server only
+        /// delivers permitted networks, so an id that is absent is not allowed.
+        /// </summary>
+        internal static bool IsLocalPlayerAllowed(long id)
+        {
+            if (!IsReservedIdRange(id))
+            {
+                return true;
+            }
+
+            PortalNetworkDefinition definition;
+            lock (ActiveById)
+            {
+                ActiveById.TryGetValue(id, out definition);
+            }
+
+            if (definition == null)
+            {
+                return false;
+            }
+
+            if (definition.IsOpen || IsLocalPlayerNetworkPrivileged())
+            {
+                return true;
+            }
+
+            return definition.Allows(NetPeerUtility.GetLocalUserId(), NetPeerUtility.GetLocalPlayerIdString());
+        }
+
+        /// <summary>
+        /// True when the local player may bypass allow-list restrictions: they are a server
+        /// admin/host AND the server config allows admins to see all networks.
+        /// </summary>
+        private static bool IsLocalPlayerNetworkPrivileged()
+        {
+            return AdminsBypassNetworks && XPortalNetworksAdminSync.IsLocalPortalNetworkAdmin();
+        }
+
+        /// <summary>
+        /// Server-owned setting (<c>AdminsSeeAllNetworks</c>, synchronized to every client): when
+        /// true, server admins/host bypass portal-network allow lists. Defaults to false, so admins
+        /// are treated like normal players.
+        /// </summary>
+        internal static bool AdminsBypassNetworks => XPortalNetworksConfig.Instance.Local.AdminsSeeAllNetworks;
 
         /// <summary>True if id is in the 1–15 configured range.</summary>
         internal static bool IsReservedIdRange(long id)
@@ -180,10 +413,14 @@ namespace XPortalNetworks
                 return;
             }
 
-            _mainThreadContext = SynchronizationContext.Current;
-
             EnsureDefaultConfigExists();
             ReloadFromDiskAndBroadcast(isInitial: true);
+            UpdateFileBaseline();
+
+            // Hot-reload is enabled regardless of whether the watcher can be created: the
+            // main-thread poll in ServerTick() guarantees changes are still picked up.
+            _hotReloadActive = true;
+            _pollCountdown = 0;
 
             var dir = Path.GetDirectoryName(GetConfigFilePath());
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
@@ -201,26 +438,135 @@ namespace XPortalNetworks
                 };
                 _watcher.Changed += OnWatcherEvent;
                 _watcher.Created += OnWatcherEvent;
+                _watcher.Deleted += OnWatcherEvent;
                 _watcher.Renamed += OnWatcherRenamed;
                 _watcher.EnableRaisingEvents = true;
                 Log.Debug($"Watching `{dir}` for `{ConfigFileName}` changes.");
             }
             catch (Exception ex)
             {
-                Log.Error($"Could not watch custom networks config folder: {ex.Message}");
+                Log.Warning($"Could not watch custom networks config folder; falling back to polling only: {ex.Message}");
             }
         }
 
         internal static void ShutdownServer()
         {
-            lock (ReloadTimerLock)
-            {
-                _reloadCoalesceTimer?.Dispose();
-                _reloadCoalesceTimer = null;
-            }
+            _hotReloadActive = false;
+            _reloadPending = false;
 
             _watcher?.Dispose();
             _watcher = null;
+        }
+
+        /// <summary>
+        /// Called every frame from the plugin's Update() (main thread). Polls the file as a
+        /// fallback for missed watcher events and performs the debounced reload. No-ops when
+        /// hot-reload is not active (clients / dedicated hosts only).
+        /// </summary>
+        internal static void ServerTick()
+        {
+            if (!_hotReloadActive)
+            {
+                return;
+            }
+
+            if (_pollCountdown-- <= 0)
+            {
+                _pollCountdown = PollIntervalFrames;
+                if (DetectFileChange())
+                {
+                    MarkReloadPending();
+                }
+            }
+
+            if (!_reloadPending)
+            {
+                return;
+            }
+
+            if (_reloadDebounceFrames > 0)
+            {
+                _reloadDebounceFrames--;
+                return;
+            }
+
+            _reloadPending = false;
+            try
+            {
+                ReloadFromDiskAndBroadcast(isInitial: false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Custom networks hot-reload failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void MarkReloadPending()
+        {
+            _reloadDebounceFrames = ReloadDebounceFrames;
+            _reloadPending = true;
+        }
+
+        /// <summary>
+        /// Cheap main-thread check: has the file changed since we last looked? Detects both
+        /// modifications (write time / size) and removal (so the default is re-seeded).
+        /// </summary>
+        private static bool DetectFileChange()
+        {
+            try
+            {
+                var path = GetConfigFilePath();
+
+                if (!File.Exists(path))
+                {
+                    // File was removed since the last check: reload so EnsureDefaultConfigExists re-seeds it.
+                    if (_lastFileSize != -1L || _lastWriteUtc != DateTime.MinValue)
+                    {
+                        _lastFileSize = -1L;
+                        _lastWriteUtc = DateTime.MinValue;
+                        Log.Warning($"Custom networks file '{path}' was removed; recreating it from the embedded default.");
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                var info = new FileInfo(path);
+                if (info.LastWriteTimeUtc != _lastWriteUtc || info.Length != _lastFileSize)
+                {
+                    _lastWriteUtc = info.LastWriteTimeUtc;
+                    _lastFileSize = info.Length;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Custom networks poll failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            return false;
+        }
+
+        private static void UpdateFileBaseline()
+        {
+            try
+            {
+                var path = GetConfigFilePath();
+                if (!File.Exists(path))
+                {
+                    _lastWriteUtc = DateTime.MinValue;
+                    _lastFileSize = -1L;
+                    return;
+                }
+
+                var info = new FileInfo(path);
+                _lastWriteUtc = info.LastWriteTimeUtc;
+                _lastFileSize = info.Length;
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Custom networks baseline failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private static string GetConfigFilePath()
@@ -322,9 +668,9 @@ namespace XPortalNetworks
             }
         }
 
-        private static Dictionary<long, string> ParseConfigJson(string raw)
+        private static Dictionary<long, PortalNetworkDefinition> ParseConfigJson(string raw)
         {
-            var result = new Dictionary<long, string>();
+            var result = new Dictionary<long, PortalNetworkDefinition>();
             if (string.IsNullOrWhiteSpace(raw))
             {
                 return result;
@@ -336,21 +682,32 @@ namespace XPortalNetworks
             var emptyOrSanitizedName = 0;
             var duplicateId = 0;
             var decodeErrors = 0;
+            var restrictedNetworks = 0;
 
             try
             {
-                foreach (Match m in NetworkEntryRegex.Matches(raw))
+                foreach (Match entry in NetworkObjectRegex.Matches(raw))
                 {
-                    if (!int.TryParse(m.Groups[1].Value, out var id) || id < MinId || id > MaxId)
+                    var body = entry.Value;
+
+                    var idMatch = NetworkIdRegex.Match(body);
+                    if (!idMatch.Success || !int.TryParse(idMatch.Groups[1].Value, out var id) || id < MinId || id > MaxId)
                     {
                         invalidId++;
+                        continue;
+                    }
+
+                    var nameMatch = NetworkNameRegex.Match(body);
+                    if (!nameMatch.Success)
+                    {
+                        emptyOrSanitizedName++;
                         continue;
                     }
 
                     string name;
                     try
                     {
-                        name = UnescapeJsonString(m.Groups[2].Value);
+                        name = UnescapeJsonString(nameMatch.Groups[1].Value);
                     }
                     catch (Exception ex)
                     {
@@ -379,7 +736,13 @@ namespace XPortalNetworks
                         continue;
                     }
 
-                    result.Add(idLong, name);
+                    var allowList = ParseAllowList(body, id);
+                    if (allowList.Count > 0)
+                    {
+                        restrictedNetworks++;
+                    }
+
+                    result.Add(idLong, new PortalNetworkDefinition(idLong, name, allowList));
                 }
             }
             catch (Exception ex)
@@ -403,14 +766,60 @@ namespace XPortalNetworks
                 Log.Warning($"Custom networks JSON: skipped {duplicateId} duplicate id {(duplicateId == 1 ? "entry" : "entries")}.");
             }
 
+            if (decodeErrors > 0)
+            {
+                Log.Warning($"Custom networks JSON: skipped {decodeErrors} {(decodeErrors == 1 ? "entry" : "entries")} with undecodable text.");
+            }
+
+            if (restrictedNetworks > 0)
+            {
+                Log.Debug($"Custom networks JSON: {restrictedNetworks} {(restrictedNetworks == 1 ? "network is" : "networks are")} restricted by an allow list.");
+            }
+
             // Non-trivial content but nothing usable — likely malformed structure, wrong key order, or bad syntax.
             if (result.Count == 0 && raw.Length > 2)
             {
                 Log.Warning(
-                    $"Custom networks JSON: no valid entries found in `{ConfigFileName}`. Expected patterns like \"id\": 1, \"name\": \"...\" with ids in {MinId}–{MaxId}. Check the file format.");
+                    $"Custom networks JSON: no valid entries found in `{ConfigFileName}`. Expected objects like \"id\": 1, \"name\": \"...\" (optionally with \"allow_list\": [\"...\"]) with ids in {MinId}–{MaxId}. Check the file format.");
             }
 
             return result;
+        }
+
+        /// <summary>Extracts the optional <c>allow_list</c> array from a single network object.</summary>
+        private static List<string> ParseAllowList(string body, int id)
+        {
+            var list = new List<string>();
+
+            var match = NetworkAllowListRegex.Match(body);
+            if (!match.Success)
+            {
+                return list;
+            }
+
+            foreach (Match entry in JsonStringRegex.Matches(match.Groups[1].Value))
+            {
+                string value;
+                try
+                {
+                    value = UnescapeJsonString(entry.Groups[1].Value);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Custom networks JSON: skipped an allow_list entry for id {id} (invalid escape sequence): {ex.GetType().Name}: {ex.Message}");
+                    continue;
+                }
+
+                value = PortalNetwork.SanitizeNetworkOwnerDisplayName(value);
+                if (string.IsNullOrEmpty(value) || list.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                list.Add(value);
+            }
+
+            return list;
         }
 
         private static string StripUtf8Bom(string s)
@@ -509,7 +918,7 @@ namespace XPortalNetworks
         {
             if (IsOurConfigFile(e.Name))
             {
-                QueueReload();
+                MarkReloadPending();
             }
         }
 
@@ -517,53 +926,7 @@ namespace XPortalNetworks
         {
             if (IsOurConfigFile(e.Name))
             {
-                QueueReload();
-            }
-        }
-
-        private static void QueueReload()
-        {
-            lock (ReloadTimerLock)
-            {
-                _reloadCoalesceTimer?.Dispose();
-                _reloadCoalesceTimer = new global::System.Threading.Timer(
-                    _ => OnCoalesceTimerFired(),
-                    null,
-                    CoalesceDelayMs,
-                    Timeout.Infinite);
-            }
-        }
-
-        private static void OnCoalesceTimerFired()
-        {
-            try
-            {
-                var ctx = _mainThreadContext;
-                if (ctx != null)
-                {
-                    ctx.Post(
-                        _ =>
-                        {
-                            try
-                            {
-                                ReloadFromDiskAndBroadcast(isInitial: false);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log.Error($"Custom networks reload failed: {ex.Message}");
-                            }
-                        },
-                        null);
-                }
-                else
-                {
-                    Log.Warning("No synchronization context; reloading custom networks on the watcher thread (may be unsafe).");
-                    ReloadFromDiskAndBroadcast(isInitial: false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Custom networks reload scheduling failed: {ex.Message}");
+                MarkReloadPending();
             }
         }
 
@@ -597,7 +960,7 @@ namespace XPortalNetworks
 
                 if (!isInitial)
                 {
-                    SendToClient.BroadcastCustomNetworks(PackForServer());
+                    BroadcastToAllPeers();
                 }
 
                 if (!isInitial)
@@ -609,6 +972,9 @@ namespace XPortalNetworks
                 {
                     NotifyListChangedLocal();
                 }
+
+                // Re-baseline so the file we just read (or re-seeded) isn't flagged again next poll.
+                UpdateFileBaseline();
             }
         }
 

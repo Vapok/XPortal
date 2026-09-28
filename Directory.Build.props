@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Points the build at the local (gitignored) reference assemblies produced by
+  tools/New-ValheimRefs.ps1, so no per-machine edits to the csproj are needed.
+
+  Only applies when .references has been populated and no ReferencesRoot was
+  supplied explicitly, so an overridden value on the command line
+  (e.g. msbuild ... /p:ReferencesRoot=C:\ValheimRefs) still wins.
+
+  ValheimGameVersion is the single source of truth for the Valheim version whose
+  assemblies we compile against. The csproj's VALHEIM_INSTALL and tools/ scripts
+  derive from it, so bumping a game version is a one-line change here.
+-->
+<Project>
+  <PropertyGroup>
+    <ValheimGameVersion Condition="'$(ValheimGameVersion)' == ''">1.0.16</ValheimGameVersion>
+
+    <_ValheimRefsRoot>$(MSBuildThisFileDirectory).references</_ValheimRefsRoot>
+    <ReferencesRoot Condition="'$(ReferencesRoot)' == '' And Exists('$(_ValheimRefsRoot)\Valheim\$(ValheimGameVersion)\assembly_valheim_publicized.dll')">$(_ValheimRefsRoot)</ReferencesRoot>
+  </PropertyGroup>
+</Project>

@@ -40,19 +40,16 @@
             KnownPortalsManager.Instance.AddOrUpdate(incomingPortal);
         }
 
-        /// <summary>
-        /// The server sent us a package containing all config settings
-        /// </summary>
-        /// <param name="sender">The server</param>
-        /// <param name="pkg">A ZPackage containing all config settings</param>
-        internal static void RPC_Config(long sender, ZPackage pkg)
-        {
-            Log.Info("Received XPortal Config from server");
-            XPortalNetworksConfig.Instance.ReceiveServerConfig(pkg);
-        }
-
         internal static void RPC_CustomNetworks(long sender, ZPackage pkg)
         {
+            // The server keeps the authoritative list (with allow lists); never let a
+            // per-client network pack overwrite it.
+            if (Environment.IsServer)
+            {
+                Log.Debug($"Ignoring custom networks {DBG_ISSERVER}");
+                return;
+            }
+
             Log.Debug("Received custom networks from server");
             CustomNetworks.ApplyFromServer(pkg);
         }

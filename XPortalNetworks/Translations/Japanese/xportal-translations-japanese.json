@@ -15,6 +15,7 @@
   "hud_xportal_no_destinations": "他にポータルがありません",
   "piece_portal_private": "プライベートポータル",
   "hud_xportal_network_my_private": "自分のプライベートポータル",
+  "hud_xportal_network_restricted": "このポータルはアクセスできないネットワークに属しています。",
   "settings_dropdown_scrollup": "ドロップダウンを上にスクロール",
   "settings_dropdown_scrolldown": "ドロップダウンを下にスクロール"
 }

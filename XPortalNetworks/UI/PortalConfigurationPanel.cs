@@ -780,7 +780,7 @@ namespace XPortalNetworks.UI
         private void SetPingMapButtonActive(bool active)
         {
             // Never show the Ping Map button if either "nomap" is active, or the server has PingMapDisabled set
-            if (ZoneSystem.instance.GetGlobalKey("nomap") || XPortalNetworksConfig.Instance.Server.PingMapDisabled)
+            if (ZoneSystem.instance.GetGlobalKey("nomap") || XPortalNetworksConfig.Instance.Local.PingMapDisabled)
             {
                 active = false;
             }
@@ -937,7 +937,7 @@ namespace XPortalNetworks.UI
             networkAssignmentDropdown.options.Add(new Dropdown.OptionData(PortalNetwork.FormatNetworkLabel(0L)));
             networkAssignmentIndexToOwnerId.Add(++index, 0L);
 
-            foreach (var customId in CustomNetworks.GetSortedActiveIds())
+            foreach (var customId in CustomNetworks.GetVisibleSortedActiveIds())
             {
                 networkAssignmentDropdown.options.Add(new Dropdown.OptionData(PortalNetwork.FormatNetworkLabel(customId)));
                 networkAssignmentIndexToOwnerId.Add(++index, customId);
@@ -1016,10 +1016,18 @@ namespace XPortalNetworks.UI
                     continue;
                 }
 
-                if (p.NetworkOwnerPlayerId != 0L)
+                if (p.NetworkOwnerPlayerId == 0L)
                 {
-                    playerIds.Add(p.NetworkOwnerPlayerId);
+                    continue;
                 }
+
+                // Team networks the local player is not a member of are hidden entirely.
+                if (CustomNetworks.IsReservedIdRange(p.NetworkOwnerPlayerId) && !CustomNetworks.IsLocalPlayerAllowed(p.NetworkOwnerPlayerId))
+                {
+                    continue;
+                }
+
+                playerIds.Add(p.NetworkOwnerPlayerId);
             }
 
             var sortedPlayerIds = playerIds.ToList();
@@ -1128,6 +1136,7 @@ namespace XPortalNetworks.UI
 
             var portalsSorted = KnownPortalsManager.Instance.GetSortedList()
                 .Where(p => p.Id != thisPortal.Id)
+                .Where(p => !CustomNetworks.IsReservedIdRange(p.NetworkOwnerPlayerId) || CustomNetworks.IsLocalPlayerAllowed(p.NetworkOwnerPlayerId))
                 .Where(p =>
                 {
                     if (selectedDestinationNetworkOwnerId == 0L)
@@ -1153,7 +1162,7 @@ namespace XPortalNetworks.UI
                 }
 
                 var distanceTag = string.Empty;
-                if (!XPortalNetworksConfig.Instance.Server.HidePortalDistance)
+                if (!XPortalNetworksConfig.Instance.Local.HidePortalDistance)
                 {
                     float distance = (int)Vector3.Distance(thisPortal.Location, portal.Location);
                     var strDistance = string.Format("{0} m", distance.ToString());

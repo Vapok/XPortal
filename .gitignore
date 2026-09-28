@@ -378,3 +378,11 @@ FodyWeavers.xsd
 !**Docs/[Ss]olution[Dd]ir/**
 .idea
 *.DotSettings
+
+# Dev container: local Valheim/BepInEx reference assemblies (mounted at build time).
+# Only the README is tracked; everything else the user drops in stays local.
+.references/*
+!.references/README.md
+
+# tools/: cached clone/build of AssemblyPublicizer
+tools/.cache/

@@ -40,44 +40,11 @@ namespace XPortalNetworks.RPC
             ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, RPCManager.RPC_RESYNC, pkg, reason);
         }
 
-        /// <summary>
-        /// Send a package of all config settings to all clients
-        /// </summary>
-        /// <param name="pkg">A ZPackage containing all config settings</param>
-        public static void Config(ZPackage pkg)
-        {
-            Log.Debug($"Sending config to everyone");
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, RPCManager.RPC_CONFIG, pkg);
-        }
-
-        /// <summary>
-        /// Send a package of all config settings to a client
-        /// </summary>
-        /// <param name="clientPeerID">The client to send the package to</param>
-        /// <param name="pkg">A ZPackage containing all config settings</param>
-        public static void Config(long clientPeerID, ZPackage pkg)
-        {
-            Log.Debug($"Sending config to {clientPeerID}");
-            ZRoutedRpc.instance.InvokeRoutedRPC(clientPeerID, RPCManager.RPC_CONFIG, pkg);
-        }
-
         /// <summary>Sends the custom network list to one client.</summary>
         public static void CustomNetworks(long clientPeerID, ZPackage pkg)
         {
             Log.Debug($"Sending custom networks to {clientPeerID}");
             ZRoutedRpc.instance.InvokeRoutedRPC(clientPeerID, RPCManager.RPC_CUSTOMNETWORKS, pkg);
-        }
-
-        /// <summary>Sends the custom network list to all connected peers.</summary>
-        public static void BroadcastCustomNetworks(ZPackage pkg)
-        {
-            if (ZNet.instance == null || ZNet.instance.GetConnectedPeers().Count == 0)
-            {
-                return;
-            }
-
-            Log.Debug("Broadcasting custom networks to everybody");
-            ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, RPCManager.RPC_CUSTOMNETWORKS, pkg);
         }
 
         /// <summary>

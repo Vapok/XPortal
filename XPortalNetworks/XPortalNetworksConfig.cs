@@ -1,8 +1,6 @@
 using BepInEx.Configuration;
 using System;
-using System.IO;
 using UnityEngine;
-using XPortalNetworks.RPC;
 
 namespace XPortalNetworks
 {
@@ -15,9 +13,14 @@ namespace XPortalNetworks
         ////////////////////////////
 
         public event Action OnLocalConfigChanged;
-        public event Action OnServerConfigChanged;
 
-        private const string Desc_EnforcedByServer = " This setting is enforced (but not overwritten) by the server.";
+        /// <summary>
+        /// Suffix for settings owned by the server. Those entries carry the
+        /// <see cref="ConfigurationManagerAttributes.IsAdminOnly"/> attribute (Jotunn's attribute
+        /// type), which hands them over to Jotunn's ServerSync: the server pushes its values into
+        /// this config file on every client, and only server admins (or the host) may change them.
+        /// </summary>
+        private const string Desc_EnforcedByServer = " This setting is owned by the server: it is synchronized from the server to all clients and can only be changed by server admins (or the host).";
 
         private ConfigFile configFile;
 
@@ -34,24 +37,21 @@ namespace XPortalNetworks
             public bool HidePortalDistance;
             /// <summary>Server-enforced portal hammer removal rules.</summary>
             public bool RestrictPortalRemoval;
+            /// <summary>Server-enforced: when true, server admins/host bypass portal-network allow lists.</summary>
+            public bool AdminsSeeAllNetworks;
             public ConfigEntry<bool> ShowSplashOnStartup;
             public ConfigEntry<bool> EnableTelemetry;
         }
 
         /// <summary>
-        /// Track local config settings
+        /// Track the config settings. Server-owned entries are synchronized into this config file
+        /// by Jotunn's ServerSync, so the values read here are authoritative on every peer.
         /// </summary>
         public ConfigSettings Local { get; set; }
-
-        /// <summary>
-        /// Track Server config settings
-        /// </summary>
-        public ConfigSettings Server { get; set; }
 
         private XPortalNetworksConfig()
         {
             Local = new ConfigSettings();
-            Server = new ConfigSettings();
         }
 
         /// <summary>
@@ -65,11 +65,6 @@ namespace XPortalNetworks
 
             this.configFile.ConfigReloaded += LocalConfigChanged;
             this.configFile.SettingChanged += LocalConfigChanged;
-
-            if (Environment.IsServer)
-            {
-                Server = Local;
-            }
         }
 
         /// <summary>
@@ -81,13 +76,27 @@ namespace XPortalNetworks
             configFile.Bind("General", "NexusID", Mod.Info.NexusId, "Nexus mod ID for updates (do not change)");
 
             // Add PingMapDisabled option which disables the Ping Map button
-            var cfgPingMapDisabled = configFile.Bind("General", "PingMapDisabled", false, "Disable the Ping Map button completely. For players who wish to play without a map." + Desc_EnforcedByServer);
+            var cfgPingMapDisabled = configFile.Bind(
+                "General",
+                "PingMapDisabled",
+                false,
+                new ConfigDescription(
+                    "Disable the Ping Map button completely. For players who wish to play without a map." + Desc_EnforcedByServer,
+                    null,
+                    new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.PingMapDisabled = cfgPingMapDisabled.Value;
 
             var cfgDisplayPortalColour = configFile.Bind("General", "DisplayPortalColour", false, "Show a \">>\" tag in the list of portals that has the same colour as the light that the portal emits (integration with \"Advanced Portals\" by RandyKnapp).");
             Local.DisplayPortalColour = cfgDisplayPortalColour.Value;
 
-            var cfgDoublePortalCosts = configFile.Bind("General", "DoublePortalCosts", false, "By using XPortalNetworks, you effectively only need half the amount of portals. To compensate for that, we can double the costs of portals." + Desc_EnforcedByServer);
+            var cfgDoublePortalCosts = configFile.Bind(
+                "General",
+                "DoublePortalCosts",
+                false,
+                new ConfigDescription(
+                    "By using XPortalNetworks, you effectively only need half the amount of portals. To compensate for that, we can double the costs of portals." + Desc_EnforcedByServer,
+                    null,
+                    new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.DoublePortalCosts = cfgDoublePortalCosts.Value;
 
             Local.DefaultPortal = configFile.Bind("General", "DefaultPortal", Vector3.zero, "The Portal that newly built Portals immediately connect to.");
@@ -98,15 +107,35 @@ namespace XPortalNetworks
                 true,
                 "If true, newly placed portals start as private (owner-only). If false, they start public on the Global network until changed.");
 
-            var cfgHidePortalDistance = configFile.Bind("General", "HidePortalDistance", false, "In the list of portals, do not show how far away other portals are." + Desc_EnforcedByServer);
+            var cfgHidePortalDistance = configFile.Bind(
+                "General",
+                "HidePortalDistance",
+                false,
+                new ConfigDescription(
+                    "In the list of portals, do not show how far away other portals are." + Desc_EnforcedByServer,
+                    null,
+                    new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.HidePortalDistance = cfgHidePortalDistance.Value;
 
             var cfgRestrictPortalRemoval = configFile.Bind(
                 "General",
                 "RestrictPortalRemoval",
                 false,
-                "When true, only the player who placed the portal or a server admin may remove it with the hammer. Other removal (e.g. structural damage) is unchanged." + Desc_EnforcedByServer);
+                new ConfigDescription(
+                    "When true, only the player who placed the portal or a server admin may remove it with the hammer. Other removal (e.g. structural damage) is unchanged." + Desc_EnforcedByServer,
+                    null,
+                    new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.RestrictPortalRemoval = cfgRestrictPortalRemoval.Value;
+
+            var cfgAdminsSeeAllNetworks = configFile.Bind(
+                "General",
+                "AdminsSeeAllNetworks",
+                false,
+                new ConfigDescription(
+                    "When true, server admins (and the host) can see and use every portal network, bypassing allow lists. When false, admins are treated like normal players and only see/use unrestricted networks or networks they are members of." + Desc_EnforcedByServer,
+                    null,
+                    new ConfigurationManagerAttributes { IsAdminOnly = true }));
+            Local.AdminsSeeAllNetworks = cfgAdminsSeeAllNetworks.Value;
 
             Local.ShowSplashOnStartup = configFile.Bind(
                 "Local Config",
@@ -124,8 +153,9 @@ namespace XPortalNetworks
         }
 
         /// <summary>
-        /// The config file was reloaded or a setting was changed. 
-        /// If we are the server, sync the config to clients.
+        /// The config file was reloaded or a setting was changed.
+        /// Server-owned settings are pushed to the clients by Jotunn's ServerSync, so only the
+        /// portal network lists (which depend on those settings) have to be re-sent by us.
         /// </summary>
         private void LocalConfigChanged(object sender, EventArgs e)
         {
@@ -133,51 +163,18 @@ namespace XPortalNetworks
 
             if (Environment.IsServer)
             {
-                Log.Debug("The config was changed, propagating to clients..");
-                SendToClient.Config(PackLocalConfig());
+                // Changing settings such as AdminsSeeAllNetworks alters which networks each client
+                // may see, so re-push the per-client network lists and refresh the local UI.
+                Log.Debug("The config was changed, re-propagating the portal network lists..");
+                CustomNetworks.BroadcastToAllPeers();
+                if (!Environment.IsHeadless)
+                {
+                    CustomNetworks.NotifyListChangedLocal();
+                }
             }
 
             OnLocalConfigChanged?.Invoke();
         }
 
-        /// <summary>
-        /// Wrap the config settings into a package
-        /// </summary>
-        /// <returns>A ZPackage containing all config settings</returns>
-        public ZPackage PackLocalConfig()
-        {
-            var pkg = new ZPackage();
-            pkg.Write(Local.PingMapDisabled);
-            pkg.Write(Local.DoublePortalCosts);
-            pkg.Write(Local.HidePortalDistance);
-            pkg.Write(Local.RestrictPortalRemoval);
-            return pkg;
-        }
-
-        /// <summary>
-        /// Set our config settings based on the package we received from the server
-        /// </summary>
-        /// <param name="pkg">A ZPackage containing all config settings</param>
-        public void ReceiveServerConfig(ZPackage pkg)
-        {
-            Server.PingMapDisabled = pkg.ReadBool();
-            Server.DoublePortalCosts = pkg.ReadBool();
-            Server.HidePortalDistance = pkg.ReadBool();
-            try
-            {
-                Server.RestrictPortalRemoval = pkg.ReadBool();
-            }
-            catch (EndOfStreamException)
-            {
-                Server.RestrictPortalRemoval = false;
-            }
-
-            Log.Debug($"PingMapDisabled {{ Local: {Local.PingMapDisabled}, Server: {Server.PingMapDisabled} }}");
-            Log.Debug($"DoublePortalCosts {{ Local: {Local.DoublePortalCosts}, Server: {Server.DoublePortalCosts} }}");
-            Log.Debug($"HidePortalDistance {{ Local: {Local.HidePortalDistance}, Server: {Server.HidePortalDistance} }}");
-            Log.Debug($"RestrictPortalRemoval {{ Local: {Local.RestrictPortalRemoval}, Server: {Server.RestrictPortalRemoval} }}");
-
-            OnServerConfigChanged?.Invoke();
-        }
     }
 }

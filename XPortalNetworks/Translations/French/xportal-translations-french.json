@@ -15,6 +15,7 @@
   "hud_xportal_no_destinations": "Aucun autre portail",
   "piece_portal_private": "Portail privé",
   "hud_xportal_network_my_private": "Mes portails privés",
+  "hud_xportal_network_restricted": "Ce portail appartient à un réseau auquel vous n'avez pas accès.",
   "settings_dropdown_scrollup": "Défilement du menu déroulant (haut)",
   "settings_dropdown_scrolldown": "Défilement du menu déroulant (bas)"
 }

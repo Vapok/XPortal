@@ -125,7 +125,7 @@ Fully navigable using controllers with integrated on-screen key hints:
 ## Configuration
 
 ### General & Server Settings
-The main configuration file is located at `BepInEx/config/vapok.mods.xportalnetworks.cfg`. Server-enforced settings will automatically synchronize from the server to connected clients via ServerSync.
+The main configuration file is located at `BepInEx/config/vapok.mods.xportalnetworks.cfg`. Server-owned settings (`PingMapDisabled`, `DoublePortalCosts`, `HidePortalDistance`, `RestrictPortalRemoval` and `AdminsSeeAllNetworks`) are synchronized from the server to every connected client via Jotunn's ServerSync, and can only be changed by server admins (or the host) - including from within the game client through the ConfigurationManager window.
 
 | Setting | Type | Description |
 | :--- | :--- | :--- |

@@ -47,7 +47,7 @@ namespace XPortalNetworks.Patches
                 return;
             }
 
-            if (!XPortalNetworksConfig.Instance.Server.RestrictPortalRemoval)
+            if (!XPortalNetworksConfig.Instance.Local.RestrictPortalRemoval)
             {
                 return;
             }

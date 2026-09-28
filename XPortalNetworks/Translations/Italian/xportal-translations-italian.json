@@ -15,6 +15,7 @@
   "hud_xportal_no_destinations": "Nessun altro portale",
   "piece_portal_private": "Portale privato",
   "hud_xportal_network_my_private": "I miei portali privati",
+  "hud_xportal_network_restricted": "Questo portale appartiene a una rete a cui non hai accesso.",
   "settings_dropdown_scrollup": "Scorri menu a tendina su",
   "settings_dropdown_scrolldown": "Scorri menu a tendina giù"
 }

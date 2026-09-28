@@ -1,3 +1,71 @@
+# 2.3.2 - Offline-Capable Research Tooling
+* **Local Web Access (`/.vscode/mcp.json`)**
+  * Added a locally-hosted MCP fetch server (`docker run -i --rm mcp/fetch`, MCP `2024-11-05` / `mcp-fetch` 1.23.0). MCP servers run locally, so agent web retrieval no longer depends on GitHub-hosted tools (which are gated by a Copilot entitlement and were refusing every request during this work).
+  * Verified end-to-end by fetching the previously-failing `https://github.com/BepInEx/BepInEx.ConfigurationManager`.
+  * Added a second locally-hosted server, `mcp/brave-search` (keyword web search); the API key is supplied through VS Code's secure `${input:...}` prompt (`password: true`) instead of being written into the repo.
+* **Documentation (`REFERENCES.md`)**
+  * Section 7 now distinguishes the GitHub-tool outage from the restored local MCP path, so the source provenance record stays accurate.
+  * Section 2 now records the verified ConfigurationManager contract: it resolves an attributes class **by type name** (`SettingEntryBase.cs`) and copies only same-named fields, its own class is `internal sealed` with no admin concept, and `IsAdminOnly`/`IsUnlocked` belong to the sync library (Jötunn). It also corrects the earlier claim that non-admin players see server-owned settings locked in the ConfigurationManager window - they do not; enforcement is via ServerSync.
+* **No mod changes**: version bump only (tooling + docs = PATCH per `.github/copilot-instructions.md`); `ModInfo.cs`, `manifest.json` and `Docs/SolutionDir/Package/Release/manifest.json` kept in sync.
+
+# 2.3.1 - Reference Documentation
+* **New Source Inventory (`REFERENCES.md`)**
+  * Documents every external source used for this mod: game assemblies and exact versions (Valheim 1.0.16 / Unity 6000.0.75f1), modding framework and libraries (BepInEx 5.4.2350, HarmonyX 2.9.0, Jötunn 2.30.2, Vapok.Valheim.Common 3.21.1015, BepInEx ConfigurationManager contract), build/analysis tooling (AssemblyPublicizer, ILRepack 2.0.44.1, Mono.Cecil, nuget.exe, .NET Framework reference assemblies), the offline XML-doc/NuGet/IL sources used for verification, in-repo prior art, referenced third-party mods, and attribution/licensing notes.
+  * Records which facts came from which source, including the `AdminOnlyStrictness` semantics quoted from `Jotunn.xml` and the decompilation-verified ServerSync data path.
+* **No code changes**: version bump only (documentation is a PATCH per `.github/copilot-instructions.md`); `ModInfo.cs`, `manifest.json` and `Docs/SolutionDir/Package/Release/manifest.json` kept in sync.
+
+# 2.3.0 - Server-Owned Config via Jotunn ServerSync
+* **ServerSync Opt-In (`XPortalNetworks.cs`)**
+  * Added `[SynchronizationMode(AdminOnlyStrictness.Always)]` to the plugin, which registers its config file with Jotunn's `SynchronizationManager` (ServerSync).
+* **Server-Owned Entries (`XPortalNetworksConfig.cs`)**
+  * `PingMapDisabled`, `DoublePortalCosts`, `HidePortalDistance`, `RestrictPortalRemoval` and `AdminsSeeAllNetworks` now carry `ConfigurationManagerAttributes.IsAdminOnly`, so ServerSync pushes the server's values into every client's config file, unlocks the entries for server admins/host in the ConfigurationManager window and locks them for everyone else.
+  * Removed the `Server` settings mirror and `TrackServerConfig()`: synced entries hold the server's values in the local config, so the cached settings are read from `Local` (`CustomNetworks.cs`, `Patches/Piece.cs`, `UI/PortalConfigurationPanel.cs`, `XPortalNetworks.cs`).
+  * Removed `PackLocalConfig()`/`ReceiveServerConfig()` and the now unused `System.IO`/`XPortalNetworks.RPC` usings.
+* **Retired Config RPC (`RPC/RPCManager.cs`, `RPC/ClientEvents.cs`, `RPC/ServerEvents.cs`, `RPC/SendToClient.cs`, `RPC/SendToServer.cs`)**
+  * Dropped `RPC_Config`/`RPC_ConfigRequest` and the `SendToClient.Config`/`SendToServer.ConfigRequest` helpers (server-to-client only). `LocalConfigChanged` on the server still re-broadcasts the per-client portal network lists, so `AdminsSeeAllNetworks` changes still take effect immediately.
+* **Docs**
+  * Configuration sections now describe the server-owned settings as synchronized and admin-editable instead of "enforced (but not overwritten) by the server".
+
+# 2.2.1 - Admin Bypass Live Toggle Fix
+* **Server Config Aliasing (`XPortalNetworksConfig.cs`, `XPortalNetworks.cs`)**
+  * Re-assert `Server = Local` whenever the config reloads and at server session start (`TrackServerConfig`), so server-enforced settings (incl. `AdminsSeeAllNetworks`) are read correctly even though the plugin loads before `ZNet` exists.
+* **Live Network Re-Push (`XPortalNetworksConfig.cs`)**
+  * On a server config change, re-broadcast each client's permitted network list and refresh the local UI, so toggling `AdminsSeeAllNetworks` takes effect immediately.
+
+# 2.2.0 - Admin Network Bypass Option
+* **New Config Option (`XPortalNetworksConfig.cs`)**
+  * Added `AdminsSeeAllNetworks` (General section, default `false`, server-enforced). When disabled, server admins/host are treated like normal players for portal-network allow lists; when enabled, they can see and use every network.
+* **Consistent Gating (`CustomNetworks.cs`, `XPortalNetworks.cs`, `RPC/ServerEvents.cs`)**
+  * Per-client network push, client-side visibility (dropdowns + hover), portal interaction, teleport gating, and server-side portal edit/link validation now all honour the setting through a single `AdminsBypassNetworks` gate.
+
+# 2.1.2 - Valheim 1.0.16 Alignment
+* **Game References (`Directory.Build.props`, `XPortalNetworks/XPortalNetworks.csproj`, `tools/*`)**:
+  * Re-publicized the Valheim 1.0.16 game assemblies and regenerated the reference layout.
+  * Added `ValheimGameVersion` to `Directory.Build.props` as the single source of truth; `VALHEIM_INSTALL` and the reference `HintPath`s (now `$(VALHEIM_INSTALL)`/`$(BEPINEX_PATH)`) plus the `tools/` scripts all derive from it, so future game updates are a one-line change.
+* **Build**: Verified the mod compiles against the 1.0.16 assemblies (no source changes required).
+
+# 2.1.1 - Config Hot-Reload Resilience
+* **Hot-Reload Poll (`CustomNetworks.cs`)**:
+  * `DetectFileChange` now treats the config file disappearing as a change, so deleting `xportal_networks.json` while the server is running reliably re-seeds it from the embedded default and reloads (previously this depended on a `FileSystemWatcher` delete event; the polling fallback ignored the file being absent).
+  * Added a warning log when the file is found missing and recreated.
+  * `UpdateFileBaseline` now records the "missing" state explicitly, and the reload re-baselines after reading so the just-read file isn't flagged again on the next poll.
+
+# 2.1.0 - Team Portal Networks
+* **Team Networks via `allow_list` (`CustomNetworks.cs`, `PortalNetwork.cs`)**:
+  * Network entries in `xportal_networks.json` now accept an optional `"allow_list"` of player ids (e.g. `Steam_12345678901234567`); the parser was rewritten to support the new object form (`id` / `name` / `allow_list`).
+  * Only players on a network's allow list can see the network in the configuration UI, edit its portals, or step through them. An omitted or empty `allow_list` keeps the network open to everyone.
+* **Server-Authoritative Network Policy (`CustomNetworks.cs`, `RPC/ServerEvents.cs`, `RPC/ClientEvents.cs`, `RPC/SendToClient.cs`, `NetPeerUtility.cs`)**:
+  * The server now sends each client only the networks that client is permitted to use (id + name only); allow lists never leave the server.
+  * Portal add/update requests are rejected when they assign a network, edit a restricted portal, or link to a portal on a team network the requester cannot access.
+  * Added `NetPeerUtility` helpers to resolve a player's platform id (`Steam_...`) for allow-list matching.
+* **Client Privacy (`XPortalNetworks.cs`, `UI/PortalConfigurationPanel.cs`)**:
+  * Portals on a restricted network the player is not a member of are hidden from hover text and from the network/destination dropdowns, and show a localized "cannot access" message on interaction.
+* **Config Hot-Reload Hardening (`CustomNetworks.cs`, `XPortalNetworks.cs`)**:
+  * `xportal_networks.json` reloads now run on the game's main thread (via the frame update pump) instead of a background thread.
+  * Added a file-timestamp polling fallback so edits are picked up even when `FileSystemWatcher` events are missed, with debounced coalescing of rapid saves.
+* **Localization**:
+  * Added `hud_xportal_network_restricted` to the shipped translations.
+
 # 2.0.10 - Portal Connection Fix
 * **Portal Reconnection & Target Resolution (`Patches/ZDOMan.cs`)**:
   * Resolved cross-session portal scrambling in `ZDOMan_ConnectPortals` by eliminating premature current-session ID collision check (`GetZDO(targetId)`).
