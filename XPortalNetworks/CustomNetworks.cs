@@ -12,10 +12,10 @@ namespace XPortalNetworks
     /// <summary>
     /// Configured portal networks (ids 1–15). Id 0 is normal Global.
     ///
-    /// Networks are defined by the server in the <c>Portal Networks</c> section of
-    /// <c>vapok.mods.xportalnetworks.cfg</c>. Those entries are handed to Jotunn's ServerSync, so the
-    /// server pushes them to every client and only an admin (or the host) can change them - networks
-    /// can therefore be managed from inside the game instead of editing files on the server.
+    /// Networks are defined by the server in the per-network <c>[Portal Network &lt;n&gt;]</c> sections of
+    /// <c>vapok.mods.xportalnetworks.cfg</c> (<c>Name</c> and <c>Permitted</c>). Those entries are handed to
+    /// Jotunn's ServerSync, so the server pushes them to every client and only an admin (or the host) can
+    /// change them - networks can therefore be managed from inside the game instead of editing files on the server.
     ///
     /// Before 2.4.0 the definitions lived in <c>BepInEx/config/XPortalNetworks/xportal_networks.json</c>;
     /// that file is read once to seed the config (see <see cref="ImportLegacyJsonIfNeeded"/>) and is
@@ -420,7 +420,7 @@ namespace XPortalNetworks
 
                 config.ApplyImportedNetworks(imported.Values);
                 Log.Info($"Imported {imported.Count} portal network(s) from the legacy `{LegacyConfigFileName}`. They are now " +
-                         "managed in the config (`Portal Networks` section) and the JSON file is no longer used - you can delete it.");
+                         "managed in the config (`Portal Network 1`, `Portal Network 2`, ...) and the JSON file is no longer used - you can delete it.");
             }
             catch (Exception ex)
             {

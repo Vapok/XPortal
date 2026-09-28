@@ -112,22 +112,26 @@ The main configuration file is located at `BepInEx/config/vapok.mods.xportalnetw
 * **`DoublePortalCosts`** *(Server Enforced)*: Doubles portal crafting costs to balance the convenience of one-to-many portal routing.
 * **`RestrictPortalRemoval`** *(Server Enforced)*: Restricts deconstructing/destroying portals to the original creator or server admins.
 * **`AdminsSeeAllNetworks`** *(Server Enforced)*: When disabled (the default), server admins and the host are treated like normal players for portal networks; when enabled they can see and use every network.
-* **`Network <n> Name`** *(Server Enforced)*: Display name of portal network *n* (1-15). Leave empty to keep that slot unused.
-* **`Network <n> Allow List`** *(Server Enforced)*: Comma separated player ids allowed to use network *n* (e.g. `Steam_12345678901234567`). Empty allows everyone.
+* **`Portal Network <n>` -> `Name`** *(Server Enforced)*: Display name of portal network *n* (1-15). Leave empty to keep that slot unused.
+* **`Portal Network <n>` -> `Permitted`** *(Server Enforced)*: Comma separated player ids allowed to use network *n* (e.g. `Steam_12345678901234567`). Empty allows everyone.
 * **`DefaultPrivatePortal`**: If true, newly placed portals start as private (owner-only).
 * **`Show Splash on Startup`**: Displays the mod overview and links splash screen on game startup.
 * **`Enable Anonymous Telemetry`**: Sends anonymous mod launch and heartbeat telemetry.
 * **`DisplayPortalColour`**: Displays colored indicators matching portal types in the menu.
 
-### Custom Named Networks (`Portal Networks` config)
-Servers define custom networks (ids 1-15) in the `Portal Networks` section of `BepInEx/config/vapok.mods.xportalnetworks.cfg`:
+### Custom Named Networks (config)
+Servers define custom networks (ids 1-15) in per-network sections of `BepInEx/config/vapok.mods.xportalnetworks.cfg`:
 
 ```ini
-[Portal Networks]
-Network 1 Name = Admin Network
-Network 2 Name = Trade Hub
-Network 2 Allow List = Steam_12345678901234567, Steam_76543210987654321
-Network 3 Name = North Outposts
+[Portal Network 1]
+Name = Admin Network
+
+[Portal Network 2]
+Name = Trade Hub
+Permitted = Steam_12345678901234567, Steam_76543210987654321
+
+[Portal Network 3]
+Name = North Outposts
 ```
 
 Leave a name empty to keep that slot unused, and leave the allow list empty to let everyone use the network.

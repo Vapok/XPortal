@@ -112,9 +112,9 @@ Restricts removing a portal with the hammer to the player who placed it, or to s
 
 When disabled (the default), server admins and the host are treated like normal players and only see and use unrestricted portal networks, or networks they are members of. When enabled, they can see and use every network. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
-[font=Courier New][b]'Portal Networks'[/b][/font]
+[font=Courier New][b]'Portal Network 1'[/b][/font]
 
-The [font=Courier New][b]'[Portal Networks]'[/b][/font] section defines up to 15 custom networks. Each one has two settings: [font=Courier New][b]'Network 1 Name'[/b][/font] and [font=Courier New][b]'Network 1 Allow List'[/b][/font] (for the first network; the number runs from 1 to 15). Leave a name empty to keep that slot unused, and leave the allow list empty to let everyone use the network. The allow list takes comma separated player ids, such as [font=Courier New][b]'Steam_12345678901234567'[/b][/font]. These settings are owned by the server: they are synchronized to all clients and can only be changed by server admins - which means networks can be added, renamed and restricted from inside the game, through the ConfigurationManager window.
+Each network (ids 1-15) has its own section with two settings: [font=Courier New][b]'Name'[/b][/font] and [font=Courier New][b]'Permitted'[/b][/font]. Leave the name empty to keep that slot unused, and leave [font=Courier New][b]'Permitted'[/b][/font] empty to let everyone use the network. [font=Courier New][b]'Permitted'[/b][/font] takes comma separated player ids, such as [font=Courier New][b]'Steam_12345678901234567'[/b][/font]. These settings are owned by the server: they are synchronized to all clients and can only be changed by server admins - which means networks can be added, renamed and restricted from inside the game, through the ConfigurationManager window.
 
 [font=Courier New][b]'Show Splash on Startup'[/b][/font]
 

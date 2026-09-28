@@ -109,9 +109,9 @@ Restricts removing a portal with the hammer to the player who placed it, or to s
 
 When disabled (the default), server admins and the host are treated like normal players and only see and use unrestricted portal networks, or networks they are members of. When enabled, they can see and use every network. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
-`Portal Networks`
+`Portal Network 1`
 
-The `[Portal Networks]` section defines up to 15 custom networks. Each one has two settings: `Network 1 Name` and `Network 1 Allow List` (for the first network; the number runs from 1 to 15). Leave a name empty to keep that slot unused, and leave the allow list empty to let everyone use the network. The allow list takes comma separated player ids, such as `Steam_12345678901234567`. These settings are owned by the server: they are synchronized to all clients and can only be changed by server admins - which means networks can be added, renamed and restricted from inside the game, through the ConfigurationManager window.
+Each network (ids 1-15) has its own section with two settings: `Name` and `Permitted`. Leave the name empty to keep that slot unused, and leave `Permitted` empty to let everyone use the network. `Permitted` takes comma separated player ids, such as `Steam_12345678901234567`. These settings are owned by the server: they are synchronized to all clients and can only be changed by server admins - which means networks can be added, renamed and restricted from inside the game, through the ConfigurationManager window.
 
 `Show Splash on Startup`
 

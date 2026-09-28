@@ -1,6 +1,8 @@
 using BepInEx.Configuration;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace XPortalNetworks
@@ -151,43 +153,183 @@ namespace XPortalNetworks
                     new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.AdminsSeeAllNetworks = cfgAdminsSeeAllNetworks.Value;
 
-            // Portal networks (ids 1-15). Server-owned and admin-editable in-game: an empty name
-            // leaves the slot unused, an empty allow list means the network is open to everyone.
+            // Portal networks (ids 1-15). One section per network, so the ConfigurationManager UI lists
+            // them in numeric order. Within a section ConfigurationManager sorts by Order *descending*
+            // and then by display name - ConfigurationManager.cs:
+            //   Settings = x.OrderByDescending(set => set.Order).ThenBy(set => set.DispName).ToList();
+            // i.e. "higher number is higher on the list" - so `Name` needs the higher value to sit above
+            // `Permitted` (leaving both at 0 would fall back to the alphabetical tie-break, which puts
+            // "Name" first only because of its spelling).
             for (var id = CustomNetworks.MinId; id <= CustomNetworks.MaxId; id++)
             {
                 Local.NetworkNames[id] = configFile.Bind(
-                    "Portal Networks",
-                    $"Network {id} Name",
+                    $"Portal Network {id}",
+                    "Name",
                     string.Empty,
                     new ConfigDescription(
                         $"Display name of portal network {id}. Leave empty to keep this network unused." + Desc_EnforcedByServer,
                         null,
-                        new ConfigurationManagerAttributes { IsAdminOnly = true }));
+                        new ConfigurationManagerAttributes { IsAdminOnly = true, Order = 2 }));
 
                 Local.NetworkAllowLists[id] = configFile.Bind(
-                    "Portal Networks",
-                    $"Network {id} Allow List",
+                    $"Portal Network {id}",
+                    "Permitted",
                     string.Empty,
                     new ConfigDescription(
                         $"Comma separated player ids allowed to use portal network {id} (e.g. Steam_12345678901234567). " +
                         "Leave empty to let everyone use it; ignored while the network has no name." + Desc_EnforcedByServer,
                         null,
-                        new ConfigurationManagerAttributes { IsAdminOnly = true }));
+                        new ConfigurationManagerAttributes { IsAdminOnly = true, Order = 1 }));
             }
 
+            MigrateLegacyNetworkSections();
+
+            // ConfigurationManager sorts settings within a section by Order *descending* (higher number
+            // is higher on the list), so the splash toggle takes the higher value to stay on top.
             Local.ShowSplashOnStartup = configFile.Bind(
                 "Local Config",
                 "Show Splash on Startup",
                 true,
                 new ConfigDescription("If enabled, displays the mod overview and links splash screen on game startup.",
-                    null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 4 }));
+                    null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 5 }));
 
             Local.EnableTelemetry = configFile.Bind(
                 "Local Config",
                 "Enable Anonymous Telemetry",
                 true,
                 new ConfigDescription("If enabled, sends anonymous mod launch and heartbeat telemetry to help improve mod stability and track active versions.",
-                    null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 5 }));
+                    null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 4 }));
+        }
+
+        /// <summary>
+        /// Carries network definitions over from the pre-2.5.0 layout, where every network lived in a
+        /// single <c>[Portal Networks]</c> section as <c>Network &lt;n&gt; Name</c> and
+        /// <c>Network &lt;n&gt; Allow List</c>. Those keys are no longer bound (so BepInEx keeps them
+        /// out of reach), so they are read straight from the config file; anything an admin configured
+        /// is copied into the new per-network sections. The old keys stay behind as an inert section -
+        /// they are not bound any more, so they do not appear in the ConfigurationManager UI.
+        /// </summary>
+        private void MigrateLegacyNetworkSections()
+        {
+            var path = configFile?.ConfigFilePath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                return;
+            }
+
+            Dictionary<long, (string Name, string Permitted)> legacy;
+            try
+            {
+                var text = File.ReadAllText(path);
+                if (text.IndexOf("Portal Networks", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return;
+                }
+
+                legacy = ParseLegacyNetworkSection(text);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Could not read the legacy portal networks from the config file: {ex.Message}");
+                return;
+            }
+
+            if (legacy.Count == 0)
+            {
+                return;
+            }
+
+            var migrated = 0;
+            foreach (var entry in legacy)
+            {
+                var id = (int)entry.Key;
+                migrated += AssignIfEmpty(Local.NetworkNames[id], entry.Value.Name);
+                migrated += AssignIfEmpty(Local.NetworkAllowLists[id], entry.Value.Permitted);
+            }
+
+            if (migrated == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                configFile.Save();
+                Log.Info($"Migrated {migrated} legacy portal-network setting(s) from the old `[Portal Networks]` section into the per-network config sections.");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Could not save the config after migrating the portal networks: {ex.Message}");
+            }
+        }
+
+        /// <summary>Fills an entry that is still empty. Returns 1 when a value was carried over.</summary>
+        private static int AssignIfEmpty(ConfigEntry<string> target, string value)
+        {
+            if (target == null || string.IsNullOrWhiteSpace(value) || !string.IsNullOrWhiteSpace(target.Value))
+            {
+                return 0;
+            }
+
+            target.Value = value;
+            return 1;
+        }
+
+        /// <summary>
+        /// Reads <c>Network &lt;n&gt; Name</c> / <c>Network &lt;n&gt; Allow List</c> values out of the
+        /// legacy <c>[Portal Networks]</c> section of a config file.
+        /// </summary>
+        private static Dictionary<long, (string Name, string Permitted)> ParseLegacyNetworkSection(string text)
+        {
+            var result = new Dictionary<long, (string Name, string Permitted)>();
+            var inLegacySection = false;
+
+            foreach (var rawLine in text.Split('\n'))
+            {
+                var line = rawLine.Trim();
+
+                if (line.Length == 0 || line[0] == '#')
+                {
+                    continue;
+                }
+
+                if (line[0] == '[')
+                {
+                    inLegacySection = line.Equals("[Portal Networks]", StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+
+                if (!inLegacySection)
+                {
+                    continue;
+                }
+
+                var separator = line.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                var key = line.Substring(0, separator).Trim();
+                var value = line.Substring(separator + 1).Trim();
+                if (value.Length == 0)
+                {
+                    continue;
+                }
+
+                var match = Regex.Match(key, @"^Network\s+(\d+)\s+(Name|Allow List)$", RegexOptions.IgnoreCase);
+                if (!match.Success || !int.TryParse(match.Groups[1].Value, out var id) || id < CustomNetworks.MinId || id > CustomNetworks.MaxId)
+                {
+                    continue;
+                }
+
+                result.TryGetValue(id, out var existing);
+                result[id] = match.Groups[2].Value.Equals("Name", StringComparison.OrdinalIgnoreCase)
+                    ? (value, existing.Permitted)
+                    : (existing.Name, value);
+            }
+
+            return result;
         }
 
         /// <summary>Configured display name for a network id (empty when the slot is unused).</summary>

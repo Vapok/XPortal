@@ -1,3 +1,12 @@
+# 2.5.0 - Portal Network Config Sections
+* **Per-Network Config Sections (`XPortalNetworksConfig.cs`)**
+  * Networks are now bound as `[Portal Network <n>]` sections with `Name` and `Permitted` keys (was: one `[Portal Networks]` section with `Network <n> Name` / `Network <n> Allow List`). Sections are bound 1-15 so the UI lists them numerically; within a section `Name` carries the higher `ConfigurationManagerAttributes.Order` (2 vs 1) because ConfigurationManager sorts by Order **descending** (`ConfigurationManager.cs`: `OrderByDescending(set => set.Order).ThenBy(set => set.DispName)`), which is also why the previous layout showed "Allow List" above "Name" (both Order 0, so the alphabetical display-name tie-break decided it).
+  * Added `MigrateLegacyNetworkSections()`: on load, values left in the old `[Portal Networks]` section are read straight from the config file (`ConfigFile.OrphanedEntries` is not accessible in BepInEx 5) and copied into the new sections where those are still empty. The old keys are deliberately left in the file as an inert section - they are no longer bound, so they do not appear in the ConfigurationManager UI.
+  * `CustomNetworks` is unchanged apart from documentation/log wording: it reads the same `GetNetworkName()` / `GetNetworkAllowList()` accessors.
+* **Local Config Ordering (`XPortalNetworksConfig.cs`)**
+  * `Show Splash on Startup` and `Enable Anonymous Telemetry` used `Order` 4 and 5, so ConfigurationManager (which sorts descending) listed telemetry first; the values are swapped (`Order = 5` for splash, `4` for telemetry) so the splash toggle is listed first.
+* **Docs**: `25Configuration.t4`, the generated Nexus/package READMEs and the README configuration lists now document the per-network layout.
+
 # 2.4.0 - Portal Networks in the Server Config
 * **Config-Owned Networks (`XPortalNetworksConfig.cs`, `CustomNetworks.cs`)**
   * Portal networks are now defined by the `Portal Networks` config section: `Network <n> Name` and `Network <n> Allow List` (ids 1-15, empty name = unused slot, empty list = open to everyone). Both are tagged `ConfigurationManagerAttributes.IsAdminOnly`, so ServerSync distributes them and only server admins (or the host) can change them.
