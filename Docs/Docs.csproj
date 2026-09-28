@@ -91,11 +91,7 @@
     <None Include="Modules\90InstallationDev.t4" />
     <None Include="Modules\99Footer.t4" />
     <None Include="_Header.t4" />
-    <None Include="SolutionDir\README.md">
-      <DependentUpon>README.tt</DependentUpon>
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-    </None>
+    <None Include="SolutionDir\README.md" />
     <None Include="README.Nexus.bbcode">
       <DependentUpon>README.Nexus.tt</DependentUpon>
       <AutoGen>True</AutoGen>
@@ -105,12 +101,6 @@
       <DependentUpon>README.tt</DependentUpon>
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="SolutionDir\README.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <LastGenOutput>README.md</LastGenOutput>
     </None>
   </ItemGroup>
   <ItemGroup>

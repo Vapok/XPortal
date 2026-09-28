@@ -40,20 +40,6 @@
             KnownPortalsManager.Instance.AddOrUpdate(incomingPortal);
         }
 
-        internal static void RPC_CustomNetworks(long sender, ZPackage pkg)
-        {
-            // The server keeps the authoritative list (with allow lists); never let a
-            // per-client network pack overwrite it.
-            if (Environment.IsServer)
-            {
-                Log.Debug($"Ignoring custom networks {DBG_ISSERVER}");
-                return;
-            }
-
-            Log.Debug("Received custom networks from server");
-            CustomNetworks.ApplyFromServer(pkg);
-        }
-
         /// <summary>
         /// Server reply: whether this client is a server admin for portal network UI.
         /// </summary>

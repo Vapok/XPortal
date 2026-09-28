@@ -147,7 +147,6 @@
         <Compile Include="ZdoTools.cs" />
     </ItemGroup>
     <ItemGroup>
-        <EmbeddedResource Include="xportal_networks.json" />
         <None Include="app.config" />
         <None Include="packages.config" />
         <None Include="Translations\Chinese\xportal-translation-chinese.json" />

@@ -8,13 +8,13 @@
       1. Restores NuGet packages (packages.config) if needed.
       2. Validates:
            - ModInfo.Version is MAJOR.MINOR.PATCH and in sync with both manifest.json files,
-           - xportal_networks.json and every translation JSON file parse,
+           - every translation JSON file parses,
            - the local reference assemblies exist.
       3. Builds the project with MSBuild (ILRepack internalizes Vapok.Valheim.Common).
       4. For Release, assembles the Thunderstore-style package and a zip.
 
-    Both the mod DLL and the BepInEx config (xportal_networks.json) are the same on the
-    server and the client, so a single build is deployable to both.
+    The mod DLL is byte-identical on the server and the client, so a single build is
+    deployable to both. (Portal networks live in the BepInEx config, not in a separate file.)
 
 .PARAMETER Configuration
     'Release' (default) or 'Debug'. Debug builds but does not package.
@@ -71,7 +71,6 @@ $ModInfoPath      = Join-Path $RepoRoot 'XPortalNetworks\ModInfo.cs'
 $RootManifestPath = Join-Path $RepoRoot 'manifest.json'
 $GenManifestPath  = Join-Path $RepoRoot 'Docs\SolutionDir\Package\Release\manifest.json'
 $TranslationsDir  = Join-Path $RepoRoot 'XPortalNetworks\Translations'
-$NetworksJsonPath = Join-Path $RepoRoot 'XPortalNetworks\xportal_networks.json'
 $PackagesDir      = Join-Path $RepoRoot 'packages'
 $CacheDir         = Join-Path $PSScriptRoot '.cache'
 $NuGetExe         = Join-Path $CacheDir 'nuget.exe'
@@ -170,7 +169,7 @@ function Invoke-Validation {
         Write-Info 'generated manifest.json not present (skipped)'
     }
 
-    $jsonFiles = @($NetworksJsonPath)
+    $jsonFiles = @()
     if (Test-Path $TranslationsDir) {
         $jsonFiles += Get-ChildItem -Path $TranslationsDir -Recurse -Filter '*.json' -File | Select-Object -ExpandProperty FullName
     }

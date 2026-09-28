@@ -12,7 +12,7 @@ Show a coloured ">>" tag in the list of portals to indicate the portal type (int
 
 <#= mf.Code("DoublePortalCosts") #>
 
-Since XPortal is essentially a cheat, in that you only need half the amount of portals now, this setting allows you to compensate for that by doubling portal costs. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
+Since <#= thisModName #> is essentially a cheat, in that you only need half the amount of portals now, this setting allows you to compensate for that by doubling portal costs. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
 
 <#= mf.Code("HidePortalDistance") #>
 
@@ -21,3 +21,27 @@ If you don't want to see how far away the portals in the list are, you can use t
 <#= mf.Code("DefaultPortal") #>
 
 This configuration option exists to save your personal Default Portal. Its value will be set by checking the Default Portal checkbox on the portal configuration panel. This value should not be manually edited in the file.
+
+<#= mf.Code("DefaultPrivatePortal") #>
+
+If true, newly placed portals start as private (owner-only). If false, they start public on the Global network until changed.
+
+<#= mf.Code("RestrictPortalRemoval") #>
+
+Restricts removing a portal with the hammer to the player who placed it, or to server admins. Other removal (such as structural damage) is unaffected. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
+
+<#= mf.Code("AdminsSeeAllNetworks") #>
+
+When disabled (the default), server admins and the host are treated like normal players and only see and use unrestricted portal networks, or networks they are members of. When enabled, they can see and use every network. This setting is owned by the server: it is synchronized to all clients and can only be changed by server admins.
+
+<#= mf.Code("Portal Networks") #>
+
+The <#= mf.Code("[Portal Networks]") #> section defines up to 15 custom networks. Each one has two settings: <#= mf.Code("Network 1 Name") #> and <#= mf.Code("Network 1 Allow List") #> (for the first network; the number runs from 1 to 15). Leave a name empty to keep that slot unused, and leave the allow list empty to let everyone use the network. The allow list takes comma separated player ids, such as <#= mf.Code("Steam_12345678901234567") #>. These settings are owned by the server: they are synchronized to all clients and can only be changed by server admins - which means networks can be added, renamed and restricted from inside the game, through the ConfigurationManager window.
+
+<#= mf.Code("Show Splash on Startup") #>
+
+If enabled, displays the mod overview and links splash screen on game startup.
+
+<#= mf.Code("Enable Anonymous Telemetry") #>
+
+If enabled, sends anonymous mod launch and heartbeat telemetry to help improve mod stability and track active versions.

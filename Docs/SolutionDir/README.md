@@ -105,25 +105,33 @@ Fully navigable using controllers with integrated on-screen key hints:
 ## Configuration
 
 ### General & Server Settings
-The main configuration file is located at `BepInEx/config/vapok.mods.xportalnetworks.cfg`. Server-owned settings (`PingMapDisabled`, `DoublePortalCosts`, `HidePortalDistance`, `RestrictPortalRemoval` and `AdminsSeeAllNetworks`) are synchronized from the server to every connected client via Jotunn's ServerSync, and can only be changed by server admins (or the host) - including from within the game client through the ConfigurationManager window.
+The main configuration file is located at `BepInEx/config/vapok.mods.xportalnetworks.cfg`. Server-owned settings (`PingMapDisabled`, `DoublePortalCosts`, `HidePortalDistance`, `RestrictPortalRemoval`, `AdminsSeeAllNetworks` and the `Portal Networks` entries) are synchronized from the server to every connected client via Jotunn's ServerSync, and can only be changed by server admins (or the host) - including from within the game client through the ConfigurationManager window.
 
 * **`PingMapDisabled`** *(Server Enforced)*: Disables map pinging for servers playing with `nomap` or immersive navigation rules.
 * **`HidePortalDistance`** *(Server Enforced)*: Hides the meter distance displayed next to portal names in the dropdown.
 * **`DoublePortalCosts`** *(Server Enforced)*: Doubles portal crafting costs to balance the convenience of one-to-many portal routing.
 * **`RestrictPortalRemoval`** *(Server Enforced)*: Restricts deconstructing/destroying portals to the original creator or server admins.
+* **`AdminsSeeAllNetworks`** *(Server Enforced)*: When disabled (the default), server admins and the host are treated like normal players for portal networks; when enabled they can see and use every network.
+* **`Network <n> Name`** *(Server Enforced)*: Display name of portal network *n* (1-15). Leave empty to keep that slot unused.
+* **`Network <n> Allow List`** *(Server Enforced)*: Comma separated player ids allowed to use network *n* (e.g. `Steam_12345678901234567`). Empty allows everyone.
+* **`DefaultPrivatePortal`**: If true, newly placed portals start as private (owner-only).
+* **`Show Splash on Startup`**: Displays the mod overview and links splash screen on game startup.
+* **`Enable Anonymous Telemetry`**: Sends anonymous mod launch and heartbeat telemetry.
 * **`DisplayPortalColour`**: Displays colored indicators matching portal types in the menu.
 
-### Custom Named Networks (`xportal_networks.json`)
-Servers can define custom networks by editing `BepInEx/config/XPortalNetworks/xportal_networks.json`. Changes to this file are automatically detected and reloaded live without needing to restart the server:
+### Custom Named Networks (`Portal Networks` config)
+Servers define custom networks (ids 1-15) in the `Portal Networks` section of `BepInEx/config/vapok.mods.xportalnetworks.cfg`:
 
-```json
-[
-  { "id": 1, "name": "Admin Network" },
-  { "id": 2, "name": "Trade Hub" },
-  { "id": 3, "name": "North Outposts" }
-]
+```ini
+[Portal Networks]
+Network 1 Name = Admin Network
+Network 2 Name = Trade Hub
+Network 2 Allow List = Steam_12345678901234567, Steam_76543210987654321
+Network 3 Name = North Outposts
 ```
-*(Supports network IDs 1 through 15).*
+
+Leave a name empty to keep that slot unused, and leave the allow list empty to let everyone use the network.
+These entries are server-owned and synchronized by Jotunn's ServerSync, so **server admins can add, rename and restrict networks from inside the game** (ConfigurationManager -> XPortalNetworks -> Portal Networks) without touching any server files. Networks previously lived in `xportal_networks.json`; that file is imported once on upgrade, after which it is ignored and can be deleted.
 
 ---
 

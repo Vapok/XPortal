@@ -1,3 +1,18 @@
+# 2.4.0 - Portal Networks in the Server Config
+* **Config-Owned Networks (`XPortalNetworksConfig.cs`, `CustomNetworks.cs`)**
+  * Portal networks are now defined by the `Portal Networks` config section: `Network <n> Name` and `Network <n> Allow List` (ids 1-15, empty name = unused slot, empty list = open to everyone). Both are tagged `ConfigurationManagerAttributes.IsAdminOnly`, so ServerSync distributes them and only server admins (or the host) can change them.
+  * `RebuildFromConfig()` replaces the JSON load path and runs on every `SettingChanged`; `ResetSession()` now rebuilds instead of clearing, so the list survives a session reset.
+* **Legacy Import (`CustomNetworks.cs`)**
+  * `InitializeServer()` imports a pre-2.4.0 `BepInEx/config/XPortalNetworks/xportal_networks.json` into the config when no network is defined yet (re-using the old parser, now reachable only from `ImportLegacyJsonIfNeeded()`), then logs that the file is obsolete.
+* **Removed RPC (`RPC/RPCManager.cs`, `RPC/ClientEvents.cs`, `RPC/ServerEvents.cs`, `RPC/SendToClient.cs`, `RPC/SendToServer.cs`)**
+  * Dropped `RPC_CustomNetworks` / `RPC_RequestCustomNetworks`, the queued re-send helpers and `SendToClient.CustomNetworks` / `SendToServer.RequestCustomNetworks`; `CustomNetworks.PackForClient` / `ApplyFromServer` / `BroadcastToAllPeers` are gone too.
+* **Hot-Reload Machinery Removed (`CustomNetworks.cs`, `XPortalNetworks.cs`)**
+  * The `FileSystemWatcher`, `ServerTick()` polling, debounce state, `EnsureDefaultConfigExists` and the embedded JSON template were all deleted; `xportal_networks.json` is no longer an embedded resource in `XPortalNetworks.csproj`, and `tools/Build.ps1` no longer validates it.
+* **Docs**: The README configuration sections describe the in-game workflow, and the setting lists are complete again - `Docs/Modules/25Configuration.t4` (plus the generated Nexus and package READMEs) now document `DefaultPrivatePortal`, `RestrictPortalRemoval`, `AdminsSeeAllNetworks`, the `Portal Networks` entries and the two `[Local Config]` toggles, and the README settings table gained the matching rows.
+* **Doc Templates (`Docs/Modules/*.t4`, `Docs/Docs.csproj`)**
+  * Removed the hard-coded self-references that had been by-passing the assembly-derived variables: `10Header.t4` / `11HeaderGitHub.t4` / `20Features.t4` / `25Configuration.t4` / `90InstallationDev.t4` now use `thisModName` (and `thisModGitHubRepo` for the banner image) instead of the literal `XPortal` and the original `SpikeHimself/XPortal` image URL, so a regeneration no longer re-introduces the pre-rename branding. Links that intentionally point at the original mod (`00Urls.t4`) and the historical changelog entries (`52Changelogs-previous.t4`) were left as-is.
+  * Removed `Docs/SolutionDir/README.tt`: `Docs/SolutionDir/README.md` is a hybrid of generated and hand-written sections (the configuration and installation sections exist in no template), so regenerating it would have deleted hand-authored content. The file is now explicitly hand-maintained, and `tools/README.md` documents which files are generated and how to regenerate them.
+
 # 2.3.2 - Offline-Capable Research Tooling
 * **Local Web Access (`/.vscode/mcp.json`)**
   * Added a locally-hosted MCP fetch server (`docker run -i --rm mcp/fetch`, MCP `2024-11-05` / `mcp-fetch` 1.23.0). MCP servers run locally, so agent web retrieval no longer depends on GitHub-hosted tools (which are gated by a Copilot entitlement and were refusing every request during this work).

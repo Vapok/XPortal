@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace XPortalNetworks
@@ -39,6 +40,19 @@ namespace XPortalNetworks
             public bool RestrictPortalRemoval;
             /// <summary>Server-enforced: when true, server admins/host bypass portal-network allow lists.</summary>
             public bool AdminsSeeAllNetworks;
+
+            /// <summary>
+            /// Server-owned portal network names, indexed by network id (1–15). An empty name leaves
+            /// that slot unused.
+            /// </summary>
+            public ConfigEntry<string>[] NetworkNames = new ConfigEntry<string>[CustomNetworks.MaxId + 1];
+
+            /// <summary>
+            /// Server-owned allow lists, indexed by network id (1–15): comma separated player ids
+            /// (e.g. <c>Steam_12345678901234567</c>). Empty means the network is open to everyone.
+            /// </summary>
+            public ConfigEntry<string>[] NetworkAllowLists = new ConfigEntry<string>[CustomNetworks.MaxId + 1];
+
             public ConfigEntry<bool> ShowSplashOnStartup;
             public ConfigEntry<bool> EnableTelemetry;
         }
@@ -137,6 +151,30 @@ namespace XPortalNetworks
                     new ConfigurationManagerAttributes { IsAdminOnly = true }));
             Local.AdminsSeeAllNetworks = cfgAdminsSeeAllNetworks.Value;
 
+            // Portal networks (ids 1-15). Server-owned and admin-editable in-game: an empty name
+            // leaves the slot unused, an empty allow list means the network is open to everyone.
+            for (var id = CustomNetworks.MinId; id <= CustomNetworks.MaxId; id++)
+            {
+                Local.NetworkNames[id] = configFile.Bind(
+                    "Portal Networks",
+                    $"Network {id} Name",
+                    string.Empty,
+                    new ConfigDescription(
+                        $"Display name of portal network {id}. Leave empty to keep this network unused." + Desc_EnforcedByServer,
+                        null,
+                        new ConfigurationManagerAttributes { IsAdminOnly = true }));
+
+                Local.NetworkAllowLists[id] = configFile.Bind(
+                    "Portal Networks",
+                    $"Network {id} Allow List",
+                    string.Empty,
+                    new ConfigDescription(
+                        $"Comma separated player ids allowed to use portal network {id} (e.g. Steam_12345678901234567). " +
+                        "Leave empty to let everyone use it; ignored while the network has no name." + Desc_EnforcedByServer,
+                        null,
+                        new ConfigurationManagerAttributes { IsAdminOnly = true }));
+            }
+
             Local.ShowSplashOnStartup = configFile.Bind(
                 "Local Config",
                 "Show Splash on Startup",
@@ -152,26 +190,98 @@ namespace XPortalNetworks
                     null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 5 }));
         }
 
+        /// <summary>Configured display name for a network id (empty when the slot is unused).</summary>
+        internal string GetNetworkName(int id)
+        {
+            if (id < CustomNetworks.MinId || id > CustomNetworks.MaxId)
+            {
+                return string.Empty;
+            }
+
+            return Local.NetworkNames[id]?.Value ?? string.Empty;
+        }
+
+        /// <summary>Raw allow-list setting for a network id.</summary>
+        internal string GetNetworkAllowList(int id)
+        {
+            if (id < CustomNetworks.MinId || id > CustomNetworks.MaxId)
+            {
+                return string.Empty;
+            }
+
+            return Local.NetworkAllowLists[id]?.Value ?? string.Empty;
+        }
+
+        /// <summary>True when at least one network slot has a name.</summary>
+        internal bool HasAnyNetworkDefined()
+        {
+            for (var id = CustomNetworks.MinId; id <= CustomNetworks.MaxId; id++)
+            {
+                if (!string.IsNullOrWhiteSpace(GetNetworkName(id)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
-        /// The config file was reloaded or a setting was changed.
-        /// Server-owned settings are pushed to the clients by Jotunn's ServerSync, so only the
-        /// portal network lists (which depend on those settings) have to be re-sent by us.
+        /// Seeds the network entries from the legacy JSON import and saves the config. Only empty
+        /// entries are filled, so nothing an admin already configured is overwritten.
+        /// </summary>
+        internal void ApplyImportedNetworks(IEnumerable<CustomNetworks.PortalNetworkDefinition> definitions)
+        {
+            var changed = false;
+
+            foreach (var definition in definitions)
+            {
+                var id = (int)definition.Id;
+                if (id < CustomNetworks.MinId || id > CustomNetworks.MaxId)
+                {
+                    continue;
+                }
+
+                var nameEntry = Local.NetworkNames[id];
+                if (nameEntry != null && string.IsNullOrWhiteSpace(nameEntry.Value) && !string.IsNullOrWhiteSpace(definition.Name))
+                {
+                    nameEntry.Value = definition.Name;
+                    changed = true;
+                }
+
+                var listEntry = Local.NetworkAllowLists[id];
+                if (listEntry != null && string.IsNullOrWhiteSpace(listEntry.Value) && definition.AllowList.Count > 0)
+                {
+                    listEntry.Value = string.Join(", ", definition.AllowList);
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            try
+            {
+                configFile?.Save();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Could not save the config after importing the legacy portal networks: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// The config file was reloaded or a setting was changed. The values themselves are distributed
+        /// by Jotunn's ServerSync, so each peer only has to rebuild its in-memory network list.
         /// </summary>
         private void LocalConfigChanged(object sender, EventArgs e)
         {
             ReloadLocalConfig();
 
-            if (Environment.IsServer)
-            {
-                // Changing settings such as AdminsSeeAllNetworks alters which networks each client
-                // may see, so re-push the per-client network lists and refresh the local UI.
-                Log.Debug("The config was changed, re-propagating the portal network lists..");
-                CustomNetworks.BroadcastToAllPeers();
-                if (!Environment.IsHeadless)
-                {
-                    CustomNetworks.NotifyListChangedLocal();
-                }
-            }
+            Log.Debug("The config was changed, rebuilding the portal network list..");
+            CustomNetworks.RebuildFromConfig();
 
             OnLocalConfigChanged?.Invoke();
         }

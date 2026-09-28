@@ -8,7 +8,7 @@ namespace Mod
         public const string Author = "Vapok";
         public const string Name = "XPortalNetworks";
         public const string GitHubRepo = "Vapok/XPortalNetworks";
-        public const string Version = "2.3.2";
+        public const string Version = "2.4.0";
         public const string Description = "Select portal destination from a list of existing portals with custom networks and private portals support. No more tag pairing, and no more portal hubs!";
         public const string WebsiteUrl = "https://github.com/" + GitHubRepo;
         public const int NexusId = 3719;

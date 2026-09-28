@@ -246,36 +246,6 @@ namespace XPortalNetworks.RPC.Server
             }
         }
 
-        internal static void RPC_RequestCustomNetworks(long sender)
-        {
-            if (!Environment.IsServer)
-            {
-                Log.Error($"{sender} wants custom networks, but I am not the server!");
-                return;
-            }
-
-            Log.Debug($"{sender} wants custom networks");
-            SendCustomNetworksTo(sender);
-
-            // The peer's platform identity may not be fully resolved this early in the join
-            // sequence; re-send shortly so allow-list-restricted networks reach the client.
-            QueuedAction.Queue(ResendCustomNetworks, delay: 60, state: sender);
-            QueuedAction.Queue(ResendCustomNetworks, delay: 300, state: sender);
-        }
-
-        private static void ResendCustomNetworks(bool delayed, object state)
-        {
-            if (state is long peerId && Environment.IsServer)
-            {
-                SendCustomNetworksTo(peerId);
-            }
-        }
-
-        private static void SendCustomNetworksTo(long peerId)
-        {
-            SendToClient.CustomNetworks(peerId, CustomNetworks.PackForClient(peerId));
-        }
-
         internal static void RPC_RequestAdminSync(long sender, ZPackage _)
         {
             if (!Environment.IsServer)

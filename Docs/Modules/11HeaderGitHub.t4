@@ -1,8 +1,8 @@
-<#= mf.Heading("XPortal") #>
+<#= mf.Heading(thisModName) #>
 
-XPortal is a Valheim mod that lets you select a portal's destination from a list. 
+<#= thisModName #> is a Valheim mod that lets you select a portal's destination from a list. 
 
-<#= mf.Image("https://raw.githubusercontent.com/SpikeHimself/XPortal/main/images/controller.gif", height: 180) #>
+<#= mf.Image($"https://raw.githubusercontent.com/{thisModGitHubRepo}/main/images/controller.gif", height: 180) #>
 
 <#= mf.Heading("Where to download") #>
 (click the image!)

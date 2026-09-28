@@ -75,9 +75,6 @@ namespace XPortalNetworks
         {
             QueuedAction.Update();
 
-            // Server-side: pick up edits to xportal_networks.json without a restart (main thread).
-            CustomNetworks.ServerTick();
-
             if (Environment.IsHeadless || !Environment.GameStarted || ZInput.instance == null || !PortalConfigurationPanel.Instance.IsActive())
             {
                 return;
@@ -93,7 +90,6 @@ namespace XPortalNetworks
             Log.Debug("Full portal list:");
             KnownPortalsManager.Instance.ReportAllPortals();
 
-            CustomNetworks.ShutdownServer();
             if (!Environment.IsHeadless)
             {
                 PortalConfigurationPanel.Instance?.Dispose();
@@ -105,8 +101,6 @@ namespace XPortalNetworks
         #region Jotunn Events
         private static void MinimapManager_OnVanillaMapDataLoaded()
         {
-            SendToServer.RequestCustomNetworks();
-
             long myId = ZDOMan.GetSessionID();
             string myName = (Game.instance != null && Game.instance.GetPlayerProfile() != null)
                 ? Game.instance.GetPlayerProfile().GetName()

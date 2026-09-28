@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\Build.ps1 -SkipRestore -SkipVal
 2. **Validate** — fails the build when:
    - `ModInfo.Version` isn't `MAJOR.MINOR.PATCH`, or
    - it doesn't match `manifest.json` **and** `Docs/SolutionDir/Package/Release/manifest.json`, or
-   - `XPortalNetworks\xportal_networks.json` or any `Translations\**\*.json` is invalid JSON, or
+   - any `Translations\**\*.json` file is invalid JSON, or
    - the reference assemblies aren't present at `-ReferencesRoot` (default `<repo>\.references`).
 3. **Build** — MSBuild; `ILRepack` internalizes `Vapok.Valheim.Common` into a single DLL.
 4. **Package** (Release) — assembles the Thunderstore-style folder and a zip.
@@ -55,6 +55,23 @@ client (same build on each side).
 ### Exit codes
 
 `0` = success, non-zero = failure. The last line is always `BUILD OK ...` or `BUILD FAILED: ...`.
+
+## Documentation (`Docs/`)
+
+Most README files are **generated** by T4 templates that Visual Studio runs (`TextTemplatingFileGenerator` entries in `Docs/Docs.csproj`). Edit the templates in `Docs/Modules/`, never the generated output:
+
+| Generated file | Template |
+|---|---|
+| `Docs/README.Nexus.bbcode` | `Docs/README.Nexus.tt` (`Modules/10Header`, `20Features`, `25Configuration`, `30Installation`, `40Bugs`, `60Credits`, `99Footer`) |
+| `Docs/SolutionDir/Package/Release/README.md` | `Docs/SolutionDir/Package/Release/README.tt` (same modules) |
+| `Docs/SolutionDir/Package/Release/manifest.json` | `Docs/SolutionDir/Package/Release/manifest.tt` |
+| `Docs/SolutionDir/Package/Release/CHANGELOG.md`, `Docs/GitHub.Release.md`, the issue templates | their matching `.tt` files |
+
+The templates read the mod identity straight from the built assembly (`Mod.Info` via `Docs/_Header.t4`), so a regeneration picks up the current name, GUID, version and GitHub repo automatically - but it needs `Docs/Docs.csproj` built first.
+
+Two files are **hand-maintained** and must not be regenerated: the repository `README.md`, and `Docs/SolutionDir/README.md` (its template was removed because the file also contains hand-written sections that regeneration would have deleted).
+
+To regenerate, open the solution in Visual Studio and run the custom tool on the `.tt` files (right-click → *Run Custom Tool*).
 
 ## `New-ValheimRefs.ps1`
 

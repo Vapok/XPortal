@@ -40,7 +40,8 @@ do not edit it.
 
 - **MAJOR** (`x.0.0`) — breaking / incompatible changes, e.g.:
   - RPC / network-protocol changes that older clients can't interoperate with,
-  - `xportal_networks.json` format incompatibilities,
+  - portal-network config incompatibilities (e.g. removing the `Portal Networks` entries,
+    changing how networks/allow lists are stored, or breaking the `xportal_networks.json` import),
   - removed features or config options, or changed defaults that break existing setups.
 - **MINOR** (`x.y.0`) — new, backwards-compatible functionality, e.g.:
   - new features, UI, portal behaviours, or **new config options** (like an added

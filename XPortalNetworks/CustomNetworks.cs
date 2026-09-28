@@ -2,22 +2,32 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using BepInEx;
 using XPortalNetworks.RPC;
 
 namespace XPortalNetworks
 {
-    /// <summary>Configured portal networks (ids 1–15). Id 0 is normal Global.</summary>
+    /// <summary>
+    /// Configured portal networks (ids 1–15). Id 0 is normal Global.
+    ///
+    /// Networks are defined by the server in the <c>Portal Networks</c> section of
+    /// <c>vapok.mods.xportalnetworks.cfg</c>. Those entries are handed to Jotunn's ServerSync, so the
+    /// server pushes them to every client and only an admin (or the host) can change them - networks
+    /// can therefore be managed from inside the game instead of editing files on the server.
+    ///
+    /// Before 2.4.0 the definitions lived in <c>BepInEx/config/XPortalNetworks/xportal_networks.json</c>;
+    /// that file is read once to seed the config (see <see cref="ImportLegacyJsonIfNeeded"/>) and is
+    /// otherwise unused.
+    /// </summary>
     internal static class CustomNetworks
     {
         internal const int MinId = 1;
         internal const int MaxId = 15;
 
-        internal const string ConfigFileName = "xportal_networks.json";
+        /// <summary>Legacy definition file, imported once and no longer watched.</summary>
+        internal const string LegacyConfigFileName = "xportal_networks.json";
 
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
@@ -79,8 +89,7 @@ namespace XPortalNetworks
 
         private static readonly Dictionary<long, PortalNetworkDefinition> ActiveById = new Dictionary<long, PortalNetworkDefinition>();
 
-        // Each network entry is a flat JSON object, e.g. { "id": 1, "name": "Bosses", "allow_list": ["Steam_..."] }.
-        // The parse below extracts the fields we care about without pulling in a full JSON dependency.
+        // The regexes are used only by the one-time import of the pre-2.4.0 JSON file above.
         private static readonly Regex NetworkObjectRegex = new Regex(
             @"\{[^{}]*\}",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -101,131 +110,92 @@ namespace XPortalNetworks
             @"""((?:[^""\\]|\\.)*)""",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-        private static FileSystemWatcher _watcher;
-        private static readonly object ReloadGate = new object();
-
-        // Hot-reload state. The FileSystemWatcher (background thread) and the poller only raise a
-        // flag; the actual reload always runs on the game's main thread via ServerTick().
-        private static volatile bool _hotReloadActive;
-        private static volatile bool _reloadPending;
-        private static volatile int _reloadDebounceFrames;
-        private static DateTime _lastWriteUtc = DateTime.MinValue;
-        private static long _lastFileSize = -1L;
-        private static int _pollCountdown;
-
-        /// <summary>Frames to wait after the last detected change before reloading (coalesces editor saves).</summary>
-        private const int ReloadDebounceFrames = 45;
-
-        /// <summary>How often (in frames) to poll the file as a fallback for missed watcher events.</summary>
-        private const int PollIntervalFrames = 30;
+        // Pre-2.4.0 hot-reload state (FileSystemWatcher + main-thread polling) lived here. It is gone:
+        // network definitions now come from the synced config, and BepInEx raises SettingChanged for us.
 
         /// <summary>Fired when the active network list changes.</summary>
         internal static event Action ListChanged;
 
         #region Registry (client + server)
 
+        /// <summary>
+        /// Rebuilds the active network list from the synced server-owned config. Runs on every peer
+        /// against the same (ServerSync-delivered) values: visibility is evaluated locally in
+        /// <see cref="IsLocalPlayerAllowed"/> for the UI, and authoritatively on the server in
+        /// <see cref="IsPlayerAllowed"/> for portal edits and links.
+        /// </summary>
         internal static void ResetSession()
         {
-            lock (ActiveById)
-            {
-                ActiveById.Clear();
-            }
+            RebuildFromConfig(notify: false);
         }
 
-        internal static void ServerSetFromParsed(Dictionary<long, PortalNetworkDefinition> parsed)
+        /// <summary>Rebuilds the active network list from the config and notifies listeners.</summary>
+        internal static void RebuildFromConfig(bool notify = true)
         {
-            lock (ActiveById)
+            var definitions = new Dictionary<long, PortalNetworkDefinition>();
+            var config = XPortalNetworksConfig.Instance;
+
+            for (var id = MinId; id <= MaxId; id++)
             {
-                ActiveById.Clear();
-                foreach (var kv in parsed.OrderBy(k => k.Key))
-                {
-                    ActiveById[kv.Key] = kv.Value;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Applies the network list the server selected for this client. The server only sends
-        /// the networks this client may use and never includes allow-list data, so a client
-        /// cannot learn about (or display) restricted networks it isn't a member of.
-        /// </summary>
-        internal static void ApplyFromServer(ZPackage pkg)
-        {
-            var count = pkg.ReadInt();
-            lock (ActiveById)
-            {
-                ActiveById.Clear();
-                for (var i = 0; i < count; i++)
-                {
-                    var id = pkg.ReadLong();
-                    var name = pkg.ReadString();
-
-                    if (id < MinId || id > MaxId || string.IsNullOrEmpty(name))
-                    {
-                        continue;
-                    }
-
-                    ActiveById[id] = new PortalNetworkDefinition(id, name, Array.Empty<string>());
-                }
-            }
-
-            ListChanged?.Invoke();
-        }
-
-        /// <summary>
-        /// Builds the network list for a single client: only the networks that client is
-        /// permitted to use, and without any allow-list data.
-        /// </summary>
-        internal static ZPackage PackForClient(long peerId)
-        {
-            var privileged = NetPeerUtility.IsPeerPrivilegedForPortalNetwork(peerId) && AdminsBypassNetworks;
-            var userId = privileged ? null : NetPeerUtility.GetPeerUserId(peerId);
-            var numericId = privileged ? null : NetPeerUtility.GetPeerPlayerIdString(peerId);
-
-            List<PortalNetworkDefinition> snapshot;
-            lock (ActiveById)
-            {
-                snapshot = ActiveById.Values.OrderBy(d => d.Id).ToList();
-            }
-
-            var allowed = privileged
-                ? snapshot
-                : snapshot.Where(d => d.Allows(userId, numericId)).ToList();
-
-            var pkg = new ZPackage();
-            pkg.Write(allowed.Count);
-            foreach (var definition in allowed)
-            {
-                pkg.Write(definition.Id);
-                pkg.Write(definition.Name);
-            }
-
-            return pkg;
-        }
-
-        /// <summary>Pushes each connected peer its own tailored network list.</summary>
-        internal static void BroadcastToAllPeers()
-        {
-            if (ZNet.instance == null)
-            {
-                return;
-            }
-
-            var peers = ZNet.instance.GetConnectedPeers();
-            if (peers == null || peers.Count == 0)
-            {
-                return;
-            }
-
-            foreach (var peer in peers)
-            {
-                if (peer == null || peer.m_uid == 0L || peer.m_uid == ZNet.GetUID())
+                var rawName = config.GetNetworkName(id);
+                if (string.IsNullOrWhiteSpace(rawName))
                 {
                     continue;
                 }
 
-                SendToClient.CustomNetworks(peer.m_uid, PackForClient(peer.m_uid));
+                var name = PortalNetwork.SanitizeNetworkOwnerDisplayName(rawName);
+                if (string.IsNullOrEmpty(name))
+                {
+                    Log.Warning($"Portal network {id}: name `{rawName}` is invalid after sanitization; ignoring this network.");
+                    continue;
+                }
+
+                definitions[id] = new PortalNetworkDefinition(id, name, ParseAllowListSetting(config.GetNetworkAllowList(id), id));
             }
+
+            lock (ActiveById)
+            {
+                ActiveById.Clear();
+                foreach (var kv in definitions)
+                {
+                    ActiveById[kv.Key] = kv.Value;
+                }
+            }
+
+            Log.Debug($"Portal networks rebuilt from config: {definitions.Count} active.");
+
+            if (notify)
+            {
+                ListChanged?.Invoke();
+            }
+        }
+
+        /// <summary>Parses the comma/semicolon separated <c>allow list</c> setting for one network.</summary>
+        private static IReadOnlyList<string> ParseAllowListSetting(string raw, long id)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return list;
+            }
+
+            foreach (var part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var value = PortalNetwork.SanitizeNetworkOwnerDisplayName(part.Trim());
+                if (string.IsNullOrEmpty(value) || list.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                list.Add(value);
+            }
+
+            if (list.Count == 0)
+            {
+                Log.Warning($"Portal network {id}: the allow list could not be parsed; the network is open to everyone.");
+            }
+
+            return list;
         }
 
         internal static bool IsActiveId(long id)
@@ -292,9 +262,9 @@ namespace XPortalNetworks
 
         /// <summary>
         /// True when the supplied player may use the given network. Non-configured ids are always
-        /// allowed; privileged players (server admins/host) bypass allow lists. A reserved id that
-        /// is unknown to this instance is treated as not allowed - on clients the server only sends
-        /// the networks that client may use.
+        /// allowed, and privileged players (server admins/host) bypass allow lists. A reserved id that
+        /// is not configured counts as not allowed, so a portal is never silently placed on a network
+        /// whose membership cannot be evaluated.
         /// </summary>
         internal static bool IsPlayerAllowed(long id, string userId, string numericPlayerId, bool privileged = false)
         {
@@ -318,8 +288,9 @@ namespace XPortalNetworks
         }
 
         /// <summary>
-        /// True when the local player may see/use the given network id. On clients the server only
-        /// delivers permitted networks, so an id that is absent is not allowed.
+        /// True when the local player may see/use the given network id. Every peer holds the same
+        /// synchronized definitions, so this is evaluated locally against the player's identity; the
+        /// server independently applies the same rule to portal edits and links.
         /// </summary>
         internal static bool IsLocalPlayerAllowed(long id)
         {
@@ -404,8 +375,13 @@ namespace XPortalNetworks
 
         #endregion
 
-        #region Server: file + watcher
+        #region Server setup
 
+        /// <summary>
+        /// Server-side setup: seed the config from a pre-2.4.0 JSON file (only when the config does not
+        /// define any network yet) and publish the definitions. Clients receive the same values through
+        /// Jotunn's ServerSync, so nothing has to be pushed from here.
+        /// </summary>
         internal static void InitializeServer()
         {
             if (!Environment.IsServer)
@@ -413,236 +389,55 @@ namespace XPortalNetworks
                 return;
             }
 
-            EnsureDefaultConfigExists();
-            ReloadFromDiskAndBroadcast(isInitial: true);
-            UpdateFileBaseline();
-
-            // Hot-reload is enabled regardless of whether the watcher can be created: the
-            // main-thread poll in ServerTick() guarantees changes are still picked up.
-            _hotReloadActive = true;
-            _pollCountdown = 0;
-
-            var dir = Path.GetDirectoryName(GetConfigFilePath());
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
-            {
-                return;
-            }
-
-            try
-            {
-                _watcher?.Dispose();
-                _watcher = new FileSystemWatcher(dir)
-                {
-                    Filter = ConfigFileName,
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-                };
-                _watcher.Changed += OnWatcherEvent;
-                _watcher.Created += OnWatcherEvent;
-                _watcher.Deleted += OnWatcherEvent;
-                _watcher.Renamed += OnWatcherRenamed;
-                _watcher.EnableRaisingEvents = true;
-                Log.Debug($"Watching `{dir}` for `{ConfigFileName}` changes.");
-            }
-            catch (Exception ex)
-            {
-                Log.Warning($"Could not watch custom networks config folder; falling back to polling only: {ex.Message}");
-            }
-        }
-
-        internal static void ShutdownServer()
-        {
-            _hotReloadActive = false;
-            _reloadPending = false;
-
-            _watcher?.Dispose();
-            _watcher = null;
+            ImportLegacyJsonIfNeeded();
+            RebuildFromConfig();
         }
 
         /// <summary>
-        /// Called every frame from the plugin's Update() (main thread). Polls the file as a
-        /// fallback for missed watcher events and performs the debounced reload. No-ops when
-        /// hot-reload is not active (clients / dedicated hosts only).
+        /// One-time import of <c>xportal_networks.json</c>. Guarded by "the config defines no network",
+        /// so an admin's in-game edits are never overwritten by the legacy file.
         /// </summary>
-        internal static void ServerTick()
-        {
-            if (!_hotReloadActive)
-            {
-                return;
-            }
-
-            if (_pollCountdown-- <= 0)
-            {
-                _pollCountdown = PollIntervalFrames;
-                if (DetectFileChange())
-                {
-                    MarkReloadPending();
-                }
-            }
-
-            if (!_reloadPending)
-            {
-                return;
-            }
-
-            if (_reloadDebounceFrames > 0)
-            {
-                _reloadDebounceFrames--;
-                return;
-            }
-
-            _reloadPending = false;
-            try
-            {
-                ReloadFromDiskAndBroadcast(isInitial: false);
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Custom networks hot-reload failed: {ex.GetType().Name}: {ex.Message}");
-            }
-        }
-
-        private static void MarkReloadPending()
-        {
-            _reloadDebounceFrames = ReloadDebounceFrames;
-            _reloadPending = true;
-        }
-
-        /// <summary>
-        /// Cheap main-thread check: has the file changed since we last looked? Detects both
-        /// modifications (write time / size) and removal (so the default is re-seeded).
-        /// </summary>
-        private static bool DetectFileChange()
+        private static void ImportLegacyJsonIfNeeded()
         {
             try
             {
-                var path = GetConfigFilePath();
-
-                if (!File.Exists(path))
+                var config = XPortalNetworksConfig.Instance;
+                if (config.HasAnyNetworkDefined())
                 {
-                    // File was removed since the last check: reload so EnsureDefaultConfigExists re-seeds it.
-                    if (_lastFileSize != -1L || _lastWriteUtc != DateTime.MinValue)
-                    {
-                        _lastFileSize = -1L;
-                        _lastWriteUtc = DateTime.MinValue;
-                        Log.Warning($"Custom networks file '{path}' was removed; recreating it from the embedded default.");
-                        return true;
-                    }
-
-                    return false;
-                }
-
-                var info = new FileInfo(path);
-                if (info.LastWriteTimeUtc != _lastWriteUtc || info.Length != _lastFileSize)
-                {
-                    _lastWriteUtc = info.LastWriteTimeUtc;
-                    _lastFileSize = info.Length;
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Debug($"Custom networks poll failed: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            return false;
-        }
-
-        private static void UpdateFileBaseline()
-        {
-            try
-            {
-                var path = GetConfigFilePath();
-                if (!File.Exists(path))
-                {
-                    _lastWriteUtc = DateTime.MinValue;
-                    _lastFileSize = -1L;
                     return;
                 }
 
-                var info = new FileInfo(path);
-                _lastWriteUtc = info.LastWriteTimeUtc;
-                _lastFileSize = info.Length;
+                if (!TryReadConfigFile(out var text, out _) || string.IsNullOrWhiteSpace(text))
+                {
+                    return;
+                }
+
+                var imported = ParseConfigJson(text);
+                if (imported.Count == 0)
+                {
+                    return;
+                }
+
+                config.ApplyImportedNetworks(imported.Values);
+                Log.Info($"Imported {imported.Count} portal network(s) from the legacy `{LegacyConfigFileName}`. They are now " +
+                         "managed in the config (`Portal Networks` section) and the JSON file is no longer used - you can delete it.");
             }
             catch (Exception ex)
             {
-                Log.Debug($"Custom networks baseline failed: {ex.GetType().Name}: {ex.Message}");
+                Log.Error($"Legacy portal network import failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
+
+        // ShutdownServer(), ServerTick(), MarkReloadPending(), DetectFileChange() and UpdateFileBaseline()
+        // were removed in 2.4.0 - there is no file to watch any more.
 
         private static string GetConfigFilePath()
         {
-            return Path.Combine(Paths.ConfigPath, Mod.Info.Name, ConfigFileName);
-        }
-
-        /// <summary>Default JSON baked into the assembly (see csproj EmbeddedResource).</summary>
-        private static string ReadEmbeddedTemplate()
-        {
-            try
-            {
-                var asm = Assembly.GetExecutingAssembly();
-                foreach (var resName in asm.GetManifestResourceNames())
-                {
-                    if (!resName.EndsWith(ConfigFileName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    using (var s = asm.GetManifestResourceStream(resName))
-                    {
-                        if (s == null)
-                        {
-                            continue;
-                        }
-
-                        using (var r = new StreamReader(s, Utf8NoBom))
-                        {
-                            return r.ReadToEnd();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Failed to read embedded `{ConfigFileName}` from assembly: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            return null;
-        }
-
-        private static void EnsureDefaultConfigExists()
-        {
-            var path = GetConfigFilePath();
-            try
-            {
-                var dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                if (File.Exists(path))
-                {
-                    return;
-                }
-
-                var templateText = ReadEmbeddedTemplate();
-                if (!string.IsNullOrEmpty(templateText))
-                {
-                    File.WriteAllText(path, templateText, Utf8NoBom);
-                    Log.Info($"Created `{path}` from embedded `{ConfigFileName}`.");
-                    return;
-                }
-
-                Log.Error($"Embedded default template `{ConfigFileName}` not found; cannot create `{path}`.");
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Could not create default custom networks file: {ex.Message}");
-            }
+            return Path.Combine(Paths.ConfigPath, Mod.Info.Name, LegacyConfigFileName);
         }
 
         /// <summary>
-        /// Reads the config file from disk. Returns false if the file does not exist (not an error).
+        /// Reads the legacy network file, if present. Returns false when it does not exist (not an error).
         /// Sets <paramref name="readError"/> true when the file exists but could not be read.
         /// </summary>
         private static bool TryReadConfigFile(out string text, out bool readError)
@@ -747,7 +542,7 @@ namespace XPortalNetworks
             }
             catch (Exception ex)
             {
-                Log.Error($"Custom networks JSON: unexpected failure while scanning `{ConfigFileName}`: {ex.GetType().Name}: {ex.Message}");
+                Log.Error($"Custom networks JSON: unexpected failure while scanning `{LegacyConfigFileName}`: {ex.GetType().Name}: {ex.Message}");
                 return result;
             }
 
@@ -780,7 +575,7 @@ namespace XPortalNetworks
             if (result.Count == 0 && raw.Length > 2)
             {
                 Log.Warning(
-                    $"Custom networks JSON: no valid entries found in `{ConfigFileName}`. Expected objects like \"id\": 1, \"name\": \"...\" (optionally with \"allow_list\": [\"...\"]) with ids in {MinId}–{MaxId}. Check the file format.");
+                    $"Custom networks JSON: no valid entries found in `{LegacyConfigFileName}`. Expected objects like \"id\": 1, \"name\": \"...\" (optionally with \"allow_list\": [\"...\"]) with ids in {MinId}–{MaxId}. Check the file format.");
             }
 
             return result;
@@ -904,79 +699,8 @@ namespace XPortalNetworks
             }
         }
 
-        private static bool IsOurConfigFile(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-            {
-                return false;
-            }
-
-            return name.Equals(ConfigFileName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static void OnWatcherRenamed(object sender, RenamedEventArgs e)
-        {
-            if (IsOurConfigFile(e.Name))
-            {
-                MarkReloadPending();
-            }
-        }
-
-        private static void OnWatcherEvent(object sender, FileSystemEventArgs e)
-        {
-            if (IsOurConfigFile(e.Name))
-            {
-                MarkReloadPending();
-            }
-        }
-
-        private static void ReloadFromDiskAndBroadcast(bool isInitial)
-        {
-            lock (ReloadGate)
-            {
-                if (!TryReadConfigFile(out var text, out var readError))
-                {
-                    if (!readError)
-                    {
-                        EnsureDefaultConfigExists();
-                    }
-
-                    if (!TryReadConfigFile(out text, out readError) || text == null)
-                    {
-                        if (readError)
-                        {
-                            Log.Error(
-                                $"Keeping the previous custom network list; fix `{GetConfigFilePath()}` and save, or restart the server after correcting the file.");
-                            return;
-                        }
-
-                        text = string.Empty;
-                    }
-                }
-
-                var parsed = ParseConfigJson(text ?? string.Empty);
-                ServerSetFromParsed(parsed);
-                MigrateInvalidNetworks();
-
-                if (!isInitial)
-                {
-                    BroadcastToAllPeers();
-                }
-
-                if (!isInitial)
-                {
-                    Log.Info("Custom networks file reloaded and pushed to clients.");
-                }
-
-                if (!Environment.IsHeadless)
-                {
-                    NotifyListChangedLocal();
-                }
-
-                // Re-baseline so the file we just read (or re-seeded) isn't flagged again next poll.
-                UpdateFileBaseline();
-            }
-        }
+        // IsOurConfigFile(), OnWatcherRenamed(), OnWatcherEvent() and ReloadFromDiskAndBroadcast() were
+        // removed in 2.4.0 with the file watcher they served.
 
         #endregion
     }
