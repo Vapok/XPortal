@@ -1,6 +1,8 @@
 # 2.0.11 - Dependency Updates & Stability
-* **Library Updates**:
-  * Internalized `Vapok.Valheim.Common` 3.22.1016.
+* **Library & Configuration Updates**:
+  * Internalized `Vapok.Valheim.Common` 3.1016.24.
+  * Migrated `XPortalNetworksConfig` to inherit from `ConfigSyncBase`, enabling centralized configuration syncing for telemetry, error reports, and log levels while preserving existing `[General]` configuration keys and RPC synchronization.
+  * Converted mod logging to use `Vapok.Common.Managers.LogManager`.
   * Updated game assembly references to 1.0.16.
 
 # 2.0.10 - Portal Connection Fix
