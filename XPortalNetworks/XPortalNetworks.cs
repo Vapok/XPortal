@@ -6,6 +6,7 @@ using Jotunn.Managers;
 using Jotunn.Utils;
 using UnityEngine;
 using Vapok.Common.Abstractions;
+using Vapok.Common.Managers;
 using Vapok.Common.Managers.Splash;
 using XPortalNetworks.Extension;
 using XPortalNetworks.RPC;
@@ -43,6 +44,9 @@ namespace XPortalNetworks
         private void Awake()
         {
             PluginInstance = this;
+            LogManager.Init(PluginId, out ILogIt logger);
+            Log.Initialize(logger);
+
             Log.Debug("I HAVE ARRIVED!");
 
             XPortalNetworksConfig.Initialize(this);

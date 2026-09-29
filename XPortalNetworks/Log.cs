@@ -1,20 +1,41 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
+using System.Reflection;
+using Vapok.Common.Abstractions;
+using Vapok.Common.Managers;
 
 namespace XPortalNetworks
 {
     internal static class Log
     {
-        public static void Debug(object message)
+        private static ILogIt _logger;
+
+        public static void Initialize(ILogIt logger)
         {
-            var stackFrameMethod = new StackTrace().GetFrame(1).GetMethod();
-            var callingClass = stackFrameMethod.DeclaringType.Name;
-            var callingMethod = stackFrameMethod.Name;
-            Jotunn.Logger.LogDebug($"[{callingClass}.{callingMethod}]  {message}");
+            _logger = logger;
         }
 
-        public static void Info(object message) => Jotunn.Logger.LogInfo(message);
-        public static void Warning(object message) => Jotunn.Logger.LogWarning(message);
-        public static void Error(object message) => Jotunn.Logger.LogError(message);
-        public static void Fatal(object message) => Jotunn.Logger.LogFatal(message);
+        private static ILogIt GetLogger()
+        {
+            if (_logger == null)
+            {
+                LogManager.Init(Mod.Info.GUID, out _logger);
+            }
+            return _logger;
+        }
+
+        public static void Debug(object message)
+        {
+            StackFrame frame = new StackTrace().GetFrame(1);
+            MethodBase method = frame?.GetMethod();
+            string callingClass = method?.DeclaringType?.Name ?? "Unknown";
+            string callingMethod = method?.Name ?? "Unknown";
+            GetLogger()?.Debug($"[{callingClass}.{callingMethod}]  {message}");
+        }
+
+        public static void Info(object message) => GetLogger()?.Info(message?.ToString() ?? string.Empty);
+        public static void Message(object message) => GetLogger()?.Message(message?.ToString() ?? string.Empty);
+        public static void Warning(object message) => GetLogger()?.Warning(message?.ToString() ?? string.Empty);
+        public static void Error(object message) => GetLogger()?.Error(message?.ToString() ?? string.Empty);
+        public static void Fatal(object message) => GetLogger()?.Fatal(message?.ToString() ?? string.Empty);
     }
 }
