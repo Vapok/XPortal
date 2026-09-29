@@ -48,7 +48,6 @@ namespace XPortalNetworks
             {
                 Tagline = "Select portal destinations from a list with custom networks and private portals support.",
                 ShowOnStartup = XPortalNetworksConfig.Instance.Local.ShowSplashOnStartup,
-                EnableTelemetry = XPortalNetworksConfig.Instance.Local.EnableTelemetry,
             });
 
             XPortalNetworksConfig.Instance.OnLocalConfigChanged += OnLocalConfigChanged;
