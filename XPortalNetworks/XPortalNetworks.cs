@@ -19,6 +19,8 @@ namespace XPortalNetworks
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Patch)]
     public class XPortalNetworks : BaseUnityPlugin, IPluginInfo
     {
+        public static XPortalNetworks PluginInstance { get; private set; }
+
         //Interface Properties
         public string PluginId => Mod.Info.GUID;
         public string DisplayName => Mod.Info.Name;
@@ -40,9 +42,10 @@ namespace XPortalNetworks
         [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0051:Remove unused private members", Justification = "MonoBehaviour.Awake is called when the script instance is being loaded.")]
         private void Awake()
         {
+            PluginInstance = this;
             Log.Debug("I HAVE ARRIVED!");
 
-            XPortalNetworksConfig.Instance.LoadLocalConfig(Config);
+            XPortalNetworksConfig.Initialize(this);
 
             ModSplashManager.Register(new ModSplashDossier(this)
             {

@@ -1,29 +1,44 @@
-using BepInEx.Configuration;
 using System;
 using System.IO;
+using BepInEx.Configuration;
 using UnityEngine;
+using Vapok.Common.Abstractions;
+using Vapok.Common.Managers.Configuration;
 using XPortalNetworks.RPC;
 
 namespace XPortalNetworks
 {
-    internal sealed class XPortalNetworksConfig
+    internal sealed class XPortalNetworksConfig : ConfigSyncBase
     {
-        ////////////////////////////
-        //// Singleton instance ////
-        private static readonly Lazy<XPortalNetworksConfig> lazy = new Lazy<XPortalNetworksConfig>(() => new XPortalNetworksConfig());
-        public static XPortalNetworksConfig Instance { get { return lazy.Value; } }
-        ////////////////////////////
+        private static XPortalNetworksConfig _instance;
+        public static XPortalNetworksConfig Instance
+        {
+            get
+            {
+                if (_instance == null && XPortalNetworks.PluginInstance != null)
+                {
+                    _instance = new XPortalNetworksConfig(XPortalNetworks.PluginInstance);
+                }
+                return _instance;
+            }
+        }
+
+        public static XPortalNetworksConfig Initialize(IPluginInfo mod)
+        {
+            if (_instance == null)
+            {
+                _instance = new XPortalNetworksConfig(mod);
+            }
+            return _instance;
+        }
 
         public event Action OnLocalConfigChanged;
         public event Action OnServerConfigChanged;
 
         private const string Desc_EnforcedByServer = " This setting is enforced (but not overwritten) by the server.";
 
-        private ConfigFile configFile;
+        private bool _eventsSubscribed;
 
-        /// <summary>
-        /// Container class for all of XPortal's config settings
-        /// </summary>
         public class ConfigSettings
         {
             public bool PingMapDisabled;
@@ -32,38 +47,20 @@ namespace XPortalNetworks
             public ConfigEntry<Vector3> DefaultPortal;
             public ConfigEntry<bool> DefaultPrivatePortal;
             public bool HidePortalDistance;
-            /// <summary>Server-enforced portal hammer removal rules.</summary>
             public bool RestrictPortalRemoval;
             public ConfigEntry<bool> ShowSplashOnStartup;
         }
 
-        /// <summary>
-        /// Track local config settings
-        /// </summary>
         public ConfigSettings Local { get; set; }
-
-        /// <summary>
-        /// Track Server config settings
-        /// </summary>
         public ConfigSettings Server { get; set; }
 
-        private XPortalNetworksConfig()
+        public XPortalNetworksConfig(IPluginInfo mod) : base(mod)
         {
+            _instance = this;
             Local = new ConfigSettings();
             Server = new ConfigSettings();
-        }
 
-        /// <summary>
-        /// Load the config file, and track the settings inside it
-        /// </summary>
-        /// <param name="configFile">The config file being loaded</param>
-        public void LoadLocalConfig(ConfigFile configFile)
-        {
-            this.configFile = configFile;
-            ReloadLocalConfig();
-
-            this.configFile.ConfigReloaded += LocalConfigChanged;
-            this.configFile.SettingChanged += LocalConfigChanged;
+            InitializeConfigurationSettings();
 
             if (Environment.IsServer)
             {
@@ -71,56 +68,74 @@ namespace XPortalNetworks
             }
         }
 
-        /// <summary>
-        /// Reload the settings inside the config file
-        /// </summary>
+        public override void InitializeConfigurationSettings()
+        {
+            ConfigFile cfg = _instanceConfig ?? Config;
+            if (cfg == null)
+                return;
+
+            ReloadLocalConfig();
+            SubscribeConfigEvents(cfg);
+        }
+
+        private void SubscribeConfigEvents(ConfigFile cfg)
+        {
+            if (_eventsSubscribed || cfg == null)
+                return;
+
+            cfg.ConfigReloaded += LocalConfigChanged;
+            cfg.SettingChanged += LocalConfigChanged;
+            _eventsSubscribed = true;
+        }
+
+        public void LoadLocalConfig(ConfigFile configFile)
+        {
+            ReloadLocalConfig();
+
+            if (Environment.IsServer)
+            {
+                Server = Local;
+            }
+        }
+
         private void ReloadLocalConfig()
         {
-            // Add Nexus ID to config for Nexus Update Check (https://www.nexusmods.com/valheim/mods/102)
-            configFile.Bind("General", "NexusID", Mod.Info.NexusId, "Nexus mod ID for updates (do not change)");
+            ConfigFile cfg = _instanceConfig ?? Config;
+            if (cfg == null)
+                return;
 
-            // Add PingMapDisabled option which disables the Ping Map button
-            var cfgPingMapDisabled = configFile.Bind("General", "PingMapDisabled", false, "Disable the Ping Map button completely. For players who wish to play without a map." + Desc_EnforcedByServer);
+            cfg.Bind("General", "NexusID", Mod.Info.NexusId, "Nexus mod ID for updates (do not change)");
+
+            ConfigEntry<bool> cfgPingMapDisabled = cfg.Bind("General", "PingMapDisabled", false, "Disable the Ping Map button completely. For players who wish to play without a map." + Desc_EnforcedByServer);
             Local.PingMapDisabled = cfgPingMapDisabled.Value;
 
-            var cfgDisplayPortalColour = configFile.Bind("General", "DisplayPortalColour", false, "Show a \">>\" tag in the list of portals that has the same colour as the light that the portal emits (integration with \"Advanced Portals\" by RandyKnapp).");
+            ConfigEntry<bool> cfgDisplayPortalColour = cfg.Bind("General", "DisplayPortalColour", false, "Show a \">>\" tag in the list of portals that has the same colour as the light that the portal emits (integration with \"Advanced Portals\" by RandyKnapp).");
             Local.DisplayPortalColour = cfgDisplayPortalColour.Value;
 
-            var cfgDoublePortalCosts = configFile.Bind("General", "DoublePortalCosts", false, "By using XPortalNetworks, you effectively only need half the amount of portals. To compensate for that, we can double the costs of portals." + Desc_EnforcedByServer);
+            ConfigEntry<bool> cfgDoublePortalCosts = cfg.Bind("General", "DoublePortalCosts", false, "By using XPortalNetworks, you effectively only need half the amount of portals. To compensate for that, we can double the costs of portals." + Desc_EnforcedByServer);
             Local.DoublePortalCosts = cfgDoublePortalCosts.Value;
 
-            Local.DefaultPortal = configFile.Bind("General", "DefaultPortal", Vector3.zero, "The Portal that newly built Portals immediately connect to.");
+            Local.DefaultPortal = cfg.Bind("General", "DefaultPortal", Vector3.zero, "The Portal that newly built Portals immediately connect to.");
 
-            Local.DefaultPrivatePortal = configFile.Bind(
+            Local.DefaultPrivatePortal = cfg.Bind(
                 "General",
                 "DefaultPrivatePortal",
                 true,
                 "If true, newly placed portals start as private (owner-only). If false, they start public on the Global network until changed.");
 
-            var cfgHidePortalDistance = configFile.Bind("General", "HidePortalDistance", false, "In the list of portals, do not show how far away other portals are." + Desc_EnforcedByServer);
+            ConfigEntry<bool> cfgHidePortalDistance = cfg.Bind("General", "HidePortalDistance", false, "In the list of portals, do not show how far away other portals are." + Desc_EnforcedByServer);
             Local.HidePortalDistance = cfgHidePortalDistance.Value;
 
-            var cfgRestrictPortalRemoval = configFile.Bind(
+            ConfigEntry<bool> cfgRestrictPortalRemoval = cfg.Bind(
                 "General",
                 "RestrictPortalRemoval",
                 false,
                 "When true, only the player who placed the portal or a server admin may remove it with the hammer. Other removal (e.g. structural damage) is unchanged." + Desc_EnforcedByServer);
             Local.RestrictPortalRemoval = cfgRestrictPortalRemoval.Value;
 
-            Local.ShowSplashOnStartup = configFile.Bind(
-                "Local Config",
-                "Show Splash on Startup",
-                true,
-                new ConfigDescription("If enabled, displays the mod overview and links splash screen on game startup.",
-                    null, new Vapok.Common.Shared.ConfigurationManagerAttributes { Order = 4 }));
-
-
+            Local.ShowSplashOnStartup = InstanceShowSplashOnStartup ?? ShowSplashOnStartup;
         }
 
-        /// <summary>
-        /// The config file was reloaded or a setting was changed. 
-        /// If we are the server, sync the config to clients.
-        /// </summary>
         private void LocalConfigChanged(object sender, EventArgs e)
         {
             ReloadLocalConfig();
@@ -134,13 +149,9 @@ namespace XPortalNetworks
             OnLocalConfigChanged?.Invoke();
         }
 
-        /// <summary>
-        /// Wrap the config settings into a package
-        /// </summary>
-        /// <returns>A ZPackage containing all config settings</returns>
         public ZPackage PackLocalConfig()
         {
-            var pkg = new ZPackage();
+            ZPackage pkg = new ZPackage();
             pkg.Write(Local.PingMapDisabled);
             pkg.Write(Local.DoublePortalCosts);
             pkg.Write(Local.HidePortalDistance);
@@ -148,10 +159,6 @@ namespace XPortalNetworks
             return pkg;
         }
 
-        /// <summary>
-        /// Set our config settings based on the package we received from the server
-        /// </summary>
-        /// <param name="pkg">A ZPackage containing all config settings</param>
         public void ReceiveServerConfig(ZPackage pkg)
         {
             Server.PingMapDisabled = pkg.ReadBool();
