@@ -12,11 +12,14 @@ using XPortalNetworks.Extension;
 using XPortalNetworks.RPC;
 using XPortalNetworks.UI;
 
+using XPortalNetworks.Compatibility;
+
 namespace XPortalNetworks
 {
     [BepInPlugin(Mod.Info.GUID, Mod.Info.Name, Mod.Info.Version)]
     [BepInIncompatibility("com.sweetgiorni.anyportal")]
     [BepInDependency(Jotunn.Main.ModGuid)]
+    [BepInDependency(LegacyCompatibility.LegacyXPortalPluginGuid, BepInDependency.DependencyFlags.SoftDependency)]
     [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Patch)]
     public class XPortalNetworks : BaseUnityPlugin, IPluginInfo
     {
@@ -69,6 +72,7 @@ namespace XPortalNetworks
 
             MinimapManager.OnVanillaMapDataLoaded += MinimapManager_OnVanillaMapDataLoaded;
 
+            LegacyCompatibility.NeutralizeLegacyXPortal();
             Patches.Patcher.Patch();
         }
 
@@ -275,6 +279,12 @@ namespace XPortalNetworks
 
         internal static void OnPortalRequestText(TeleportWorld teleportWorld)
         {
+            if (teleportWorld == null || teleportWorld.m_nview == null || !teleportWorld.m_nview.IsValid() || teleportWorld.m_nview.GetZDO() == null)
+            {
+                Log.Warning("OnPortalRequestText: Interacting with an invalid or destroyed portal.");
+                return;
+            }
+
             ZDOID portalId = teleportWorld.m_nview.GetZDO().m_uid;
             KnownPortal portal = KnownPortalsManager.Instance.GetKnownPortalById(portalId);
             if (portal == null)

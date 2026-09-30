@@ -1,4 +1,5 @@
 using HarmonyLib;
+using XPortalNetworks.Compatibility;
 
 namespace XPortalNetworks.Patches
 {
@@ -8,6 +9,8 @@ namespace XPortalNetworks.Patches
 
         public static void Patch()
         {
+            LegacyCompatibility.NeutralizeLegacyXPortal();
+
             if (!Environment.IsHeadless)
             {
                 patcher.PatchAll(typeof(Dropdown_OnSubmit));

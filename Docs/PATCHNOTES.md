@@ -1,3 +1,16 @@
+# 2.0.12 - UI Interaction Hardening & Legacy Mod Coexistence
+* **UI Priority & Escape Key Fallback (`UI/PortalConfigurationPanel.cs`)**:
+  * Elevated `mainPanel`'s `UIGroupHandler.m_groupPriority` to `100`, preventing background HUDs and third-party mod panels from deactivating its `CanvasGroup.interactable` state.
+  * Added an immediate `Input.GetKeyDown(KeyCode.Escape)` / `ZInput.GetKeyDown(KeyCode.Escape)` escape hatch inside `PortalConfigurationPanel.HandleInput()`, ensuring the menu can be closed and `GUIManager.BlockInput(false)` released at any time regardless of `UIGroupHandler` / `UIGamePad` interactive state.
+* **Legacy XPortal Neutralization & Coexistence (`Compatibility/LegacyCompatibility.cs`, `XPortalNetworks.cs`, `Patches/Patcher.cs`)**:
+  * Added soft dependency `[BepInDependency(LegacyCompatibility.LegacyXPortalPluginGuid, BepInDependency.DependencyFlags.SoftDependency)]` ensuring legacy `yay.spikehimself.xportal` loads before `XPortalNetworks`.
+  * Created `LegacyCompatibility.NeutralizeLegacyXPortal()`: checks `Chainloader.PluginInfos`, sets `legacyPlugin.Instance.enabled = false` to stop legacy update loops, and calls `Harmony.UnpatchID` for both `yay.spikehimself.xportal.harmony` and `yay.spikehimself.xportal` to cleanly strip conflicting hooks without raising compatibility crash dialogs.
+* **TMP Font Fallback Warning Resolution (`UI/UIFonts.cs`, `UI/PortalConfigurationPanel.cs`)**:
+  * Created `UIFonts.cs` to resolve and cache `Valheim-AveriaSansLibre` and ensure `TMP_Settings.defaultFontAsset` is populated before TMP components awake.
+  * Refactored `CreateGamepadHint` to avoid premature `TextMeshProUGUI.Awake()` with unassigned fonts, eliminating the 8 consecutive `The LiberationSans SDF Font Asset was not found` warnings.
+* **Defensive Portal Interaction Safety (`XPortalNetworks.cs`)**:
+  * Added defensive null and validity guards on `teleportWorld`, `teleportWorld.m_nview`, and `teleportWorld.m_nview.GetZDO()` in `OnPortalRequestText`, resolving Sentry issue `XPORTALNETWORKS-B`.
+
 # 2.0.11 - Dependency Updates & Stability
 * **Library & Configuration Updates**:
   * Internalized `Vapok.Valheim.Common` 3.1016.24.

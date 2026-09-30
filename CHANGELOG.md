@@ -1,8 +1,15 @@
-# 2.0.11 - Dependency Updates & Stability
-* Updated internal dependencies for stability.
+# 2.0.12 - UI Interaction Hardening & Legacy Mod Coexistence
+* Fixed an issue where the portal selection window could stop responding to mouse clicks or controller input while open.
+* Added an immediate Escape key shortcut to close the portal selection window at any time.
+* Added seamless coexistence for players with legacy XPortal installed, preventing mod conflicts and duplicated portal menus.
+* Fixed harmless font warning messages appearing in the log when opening the portal menu.
+* Hardened portal interaction checks to prevent errors when interacting with damaged or transitioning portals.
 
 <details>
 <summary><b>2.0 Changelog History (Valheim Release)</b> (<i>click to expand</i>)</summary>
+
+### 2.0.11 - Dependency Updates & Stability
+* Updated internal dependencies for stability.
 
 ### 2.0.10 - Portal Connection Fix
 > **Author's Note:** Apologies for the update earlier which messed up portals connections. This has been fixed.

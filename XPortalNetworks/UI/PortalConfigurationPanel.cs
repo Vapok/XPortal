@@ -644,6 +644,12 @@ namespace XPortalNetworks.UI
 
         public void HandleInput()
         {
+            if (Input.GetKeyDown(KeyCode.Escape) || ZInput.GetKeyDown(KeyCode.Escape))
+            {
+                Hide();
+                return;
+            }
+
             bool gamepad = ZInput.IsGamepadActive();
             for (int i = 0; i < dropdownListNavHints.Count; i++)
             {
@@ -1259,8 +1265,9 @@ namespace XPortalNetworks.UI
                         height: 496f,
                         draggable: false);
                 mainPanel.name = GO_MAINPANEL;
-                mainPanel.AddComponent<CanvasGroup>();
-                mainPanel.AddComponent<UIGroupHandler>();
+                CanvasGroup canvasGroup = mainPanel.AddComponent<CanvasGroup>();
+                UIGroupHandler groupHandler = mainPanel.AddComponent<UIGroupHandler>();
+                groupHandler.m_groupPriority = 100;
 
                 if (!mainPanel.GetComponentInParent<Localize>())
                 {
@@ -1664,19 +1671,18 @@ namespace XPortalNetworks.UI
 
         private GameObject CreateGamepadHint(string buttonName)
         {
-            var goGamepadHint = new GameObject("gamepad_hint", typeof(RectTransform), typeof(TextMeshProUGUI));
+            TMP_FontAsset font = UIFonts.GetAveriaSansFont();
+            GameObject goGamepadHint = new GameObject("gamepad_hint", typeof(RectTransform));
+            TextMeshProUGUI textMesh = goGamepadHint.AddComponent<TextMeshProUGUI>();
 
-            var textMesh = goGamepadHint.GetComponent<TextMeshProUGUI>();
-            var font = Resources.FindObjectsOfTypeAll<TMP_FontAsset>().FirstOrDefault(fa => fa.name == "Valheim-AveriaSansLibre");
-
-            textMesh.font = !font ? TMP_Settings.defaultFontAsset : font;
+            textMesh.font = font != null ? font : TMP_Settings.defaultFontAsset;
             textMesh.text = $"$KEY_{buttonName}";
             textMesh.fontSize = 18;
             textMesh.alignment = TextAlignmentOptions.Center;
             textMesh.raycastTarget = false;
             Localization.instance.textMeshStrings[textMesh] = textMesh.text;
 
-            var rt = goGamepadHint.GetComponent<RectTransform>();
+            RectTransform rt = goGamepadHint.GetComponent<RectTransform>();
             rt.pivot = new Vector2(0.5f, 0.5f); // pivot middle centre
             rt.anchorMin = new Vector2(1f, 1f); // anchor top right
             rt.anchorMax = new Vector2(1f, 1f);

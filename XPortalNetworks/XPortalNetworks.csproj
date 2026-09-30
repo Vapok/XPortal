@@ -133,7 +133,9 @@
         <Compile Include="RPC\SendToClient.cs" />
         <Compile Include="QueuedAction.cs" />
         <Compile Include="XPortalNetworksConfig.cs" />
+        <Compile Include="Compatibility\LegacyCompatibility.cs" />
         <Compile Include="UI\PortalConfigurationPanel.cs" />
+        <Compile Include="UI\UIFonts.cs" />
         <Compile Include="Patches\Patcher.cs" />
         <Compile Include="KnownPortal.cs" />
         <Compile Include="Properties\IgnoreAccessModifiers.cs" />
